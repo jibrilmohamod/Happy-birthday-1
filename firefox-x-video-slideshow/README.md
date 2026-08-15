@@ -1,51 +1,59 @@
 # X Video Slideshow for Firefox
 
-Firefox WebExtension for browsing X/Twitter videos as a fullscreen slideshow while keeping X's own video player controls.
+Firefox WebExtension for browsing X/Twitter videos in a standalone fullscreen wrapper.
 
-## v0.4.2 sound autoplay handling
+## v0.5.0: standalone wrapper
 
-Firefox applies autoplay restrictions to script-started media with audible audio. Muted media is treated differently. Mouse-wheel events also do not create Firefox user activation, so wheel-only navigation cannot reliably authorize audible autoplay by itself.
+v0.5 removes the previous approach of promoting X's `data-testid="videoPlayer"` container. The extension now owns the fullscreen shell and uses only the raw X `<video>` element as the media source.
 
-The extension detects the failure where a newly opened unmuted video begins and then immediately pauses. When that happens, a small **Enable sound autoplay** button appears in the fullscreen overlay.
+When a video opens, the extension temporarily moves that `<video>` element into its own top-level overlay and enables Firefox's native HTML video controls. X's surrounding React player, layout containers and custom playback controls are no longer part of the fullscreen player.
 
-Clicking that button starts the video during a real trusted pointer event. That is the browser-supported way to establish user activation for audible playback on the X page.
+This avoids the transformed-container positioning bug and removes most of the player state that X was able to break while navigating.
 
-If Firefox still blocks audible autoplay after repeated attempts, allow **Audio and Video** autoplay for `x.com` using Firefox's site permissions. Firefox exposes this from the autoplay/site-permission control in the address bar or from Settings > Privacy & Security > Permissions > Autoplay.
+## Sound and autoplay
 
-The stable v0.3 player runtime remains unchanged.
+Firefox can block script-started audible media until the page has user activation. If audible playback is not already allowed, v0.5 shows a one-time **Start slideshow with sound** button.
 
-## Stability
+After that real click, subsequent wheel/keyboard navigation reuses the page's sticky user activation. If X itself tries to pause the detached video without a recent user pause, the wrapper automatically resumes it.
 
-v0.4.0 tried to keep a video buffer filled by continuously scrolling the same X tab that was also playing the fullscreen video. That interfered with X's virtualized timeline, caused repeated loading, and could break autoplay/player state.
+Muted videos continue to start without the sound gate when Firefox permits muted autoplay.
 
-That background scrolling has been removed entirely. The active playback tab stays still while the current video is playing. X is only scrolled when you actually navigate to another video or when the extension needs to locate the first video.
+## Continuous discovery
+
+The X feed is now used only as a discovery layer behind the wrapper.
+
+- The extension keeps an ordered catalog of video tweet/status URLs.
+- It continuously scrolls the hidden feed until it has up to 8 videos discovered ahead of the current video.
+- The loader backs off after repeated scans with no new videos instead of showing an endless loading loop.
+- The top-right badge shows the current position, total discovered videos, videos ahead, and whether discovery is fetching or waiting.
+
+Example:
+
+`3/11 loaded · 8 ahead · fetching`
+
+If X virtualizes or empties the detached video while discovery is running, the extension remembers the tweet key and playback time, reloads the tweet, and attempts to resume the current video.
 
 ## Navigation
 
 - Mouse wheel / trackpad scroll down: next video
 - Mouse wheel / trackpad scroll up: previous video
-- `Arrow Right` or `J`: next video
-- `Arrow Left` or `K`: previous video
+- `Arrow Down`, `Arrow Right`, `Page Down`, or `J`: next video
+- `Arrow Up`, `Arrow Left`, `Page Up`, or `K`: previous video
 - `Esc`: exit slideshow mode
 - Firefox toolbar button: start or stop slideshow mode
 
-Wheel handling lives in a separate interaction script so it cannot alter the player lifecycle.
+The current video automatically advances when it ends.
 
-Videos automatically advance when the current X video fires its `ended` event.
+## Player controls
 
-## Loaded-video count
+The fullscreen video uses Firefox's native `<video controls>` UI for:
 
-The top-right badge shows how many unique video tweets X has actually rendered during the current page session, for example:
+- play/pause
+- seeking
+- volume/mute
+- fullscreen/native media controls
 
-`7 loaded`
-
-This counter is passive. It observes X's DOM and never scrolls the feed or triggers loading by itself.
-
-## Fullscreen player
-
-The extension uses the real X `data-testid="videoPlayer"` DOM node. It temporarily moves that player into a top-level fullscreen shell, preserving X's existing playback UI instead of creating a replacement video element.
-
-Before switching videos, the current player is restored to its original DOM position. Navigation is serialized so overlapping moves cannot corrupt player state.
+The wrapper preserves the chosen mute state, volume, and playback rate when moving between videos.
 
 ## Install temporarily in Firefox
 
@@ -55,17 +63,19 @@ Before switching videos, the current player is restored to its original DOM posi
 4. Click **Load Temporary Add-on…**.
 5. Select `firefox-x-video-slideshow/manifest.json`.
 6. Open or reload `https://x.com`.
-7. Navigate to a feed, profile, search, or Media page containing video.
+7. Open a feed, profile, search, or Media page containing video.
 8. Click the extension toolbar button.
+
+Confirm the extension version is **0.5.0** before testing.
 
 Temporary extensions are removed when Firefox restarts.
 
 ## Firefox implementation
 
-Manifest V3 for Firefox 109+.
+Manifest V3 for Firefox 109+ using `activeTab`, `scripting`, `action.onClicked`, and Firefox's `background.scripts` event-page model.
 
-The extension uses `activeTab` and `scripting`. `content.js` and the lightweight `interaction.js` layer are injected in response to the toolbar action instead of depending on a page-load content script.
+`content.js` is injected on demand when the toolbar button is clicked. v0.5 no longer has a separate `interaction.js` layer.
 
 ## Privacy
 
-No analytics, remote API calls, tracking, or data upload. The extension only reads X's page DOM and scrolls the active tab when navigation requires another video.
+No analytics, remote API calls, tracking, or data upload. The extension only reads and temporarily rearranges X page DOM in the active tab and scrolls the feed locally to discover more videos.
