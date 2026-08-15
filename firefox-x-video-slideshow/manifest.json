@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.6.0",
-  "description": "Fullscreen X video capture wrapper for Firefox with sound-on playback and scroll navigation.",
+  "version": "0.6.1",
+  "description": "Stable fullscreen X video capture wrapper for Firefox with sound-on playback and scroll navigation.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "https://x.com/*",
