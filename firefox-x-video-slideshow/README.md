@@ -29,7 +29,7 @@ Images use the same overlay, previous/next navigation, progress bar, pause/resum
 
 The overlay now contains Like, Repost, and Bookmark controls.
 
-These do not duplicate X APIs. They locate the original tweet article and proxy the click to X's real `data-testid` controls. Repost also handles X's repost confirmation menu. Active liked/reposted/bookmarked state is refreshed from the underlying tweet.
+These locate the original tweet article and proxy the action to X's real `data-testid` controls. Repost also handles X's repost confirmation menu. Active liked/reposted/bookmarked state is refreshed from the underlying tweet.
 
 ### Chrome-v3 playback model
 
@@ -64,8 +64,10 @@ Like the supplied Chrome v3 extension, playback starts muted for autoplay reliab
 3. Remove any older temporary copy of **X Video Slideshow**.
 4. Click **Load Temporary Add-on…**.
 5. Select `firefox-x-video-slideshow/manifest.json`.
-6. Reload the X tab so the new content scripts load.
-7. Click the extension icon and use the popup to configure/start the slideshow.
+6. Reload the X tab so `core.js`, `player.js`, and `controller.js` load.
+7. Click the extension icon. The popup should appear.
+8. Optionally enable **Include images** and choose the interval.
+9. Click **Start Overlay Slideshow**.
 
 Confirm the extension version is **0.8.0** before testing.
 
