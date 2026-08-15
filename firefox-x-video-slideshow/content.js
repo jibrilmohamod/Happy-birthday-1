@@ -3,27 +3,28 @@
 
   const TWEET_SELECTOR = 'article[data-testid="tweet"]';
   const PLAYER_SELECTOR = '[data-testid="videoPlayer"]';
-  const ACTIVE_PLAYER_CLASS = 'xvs-firefox-fullscreen-player';
-  const ACTIVE_VIDEO_CLASS = 'xvs-firefox-fullscreen-video';
-  const ACTIVE_TWEET_CLASS = 'xvs-firefox-active-tweet';
   const ROOT_ID = 'xvs-firefox-root';
   const STYLE_ID = 'xvs-firefox-style';
-  const SEARCH_ATTEMPTS = 18;
-  const SEARCH_DELAY_MS = 350;
-  const SCROLL_STEP = 0.9;
+  const ACTIVE_PLAYER_CLASS = 'xvs-firefox-portal-player';
+  const SEARCH_ATTEMPTS = 20;
+  const SEARCH_DELAY_MS = 300;
+  const SCROLL_STEP = 0.86;
 
   const state = {
     active: false,
-    currentTweet: null,
-    currentPlayer: null,
-    currentVideo: null,
+    navigating: false,
+    token: 0,
     currentKey: null,
+    currentVideo: null,
+    currentPlayer: null,
+    endedHandler: null,
+    portal: null,
     history: [],
     historyIndex: -1,
-    token: 0,
-    endedHandler: null,
     root: null,
-    status: null
+    status: null,
+    toast: null,
+    toastTimer: null
   };
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,31 +38,67 @@
       #${ROOT_ID} {
         position: fixed !important;
         inset: 0 !important;
-        z-index: 2147483645 !important;
-        pointer-events: none !important;
-        background: rgba(0, 0, 0, 0.96) !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 2147483646 !important;
+        overflow: hidden !important;
+        background: #000 !important;
+        color: #fff !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        pointer-events: auto !important;
+        contain: layout paint style !important;
       }
 
       #${ROOT_ID} .xvs-status {
         position: absolute !important;
         inset: 0 !important;
+        z-index: 1 !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        padding: 32px !important;
         box-sizing: border-box !important;
+        padding: 32px !important;
+        background: #000 !important;
         color: #fff !important;
-        background: transparent !important;
-        font: 600 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        line-height: 1.45 !important;
         text-align: center !important;
         pointer-events: none !important;
       }
 
-      .${ACTIVE_PLAYER_CLASS} {
-        position: fixed !important;
+      #${ROOT_ID} .xvs-toast {
+        position: absolute !important;
+        top: 20px !important;
+        left: 50% !important;
+        z-index: 2147483647 !important;
+        transform: translateX(-50%) !important;
+        max-width: min(680px, calc(100vw - 40px)) !important;
+        box-sizing: border-box !important;
+        padding: 10px 14px !important;
+        border-radius: 999px !important;
+        background: rgba(32, 35, 39, 0.92) !important;
+        color: #fff !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        line-height: 1.3 !important;
+        text-align: center !important;
+        pointer-events: none !important;
+        opacity: 0 !important;
+        transition: opacity 120ms linear !important;
+      }
+
+      #${ROOT_ID} .xvs-toast.xvs-toast-visible {
+        opacity: 1 !important;
+      }
+
+      #${ROOT_ID} > .${ACTIVE_PLAYER_CLASS} {
+        position: absolute !important;
         inset: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
+        z-index: 2 !important;
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
         max-width: none !important;
         max-height: none !important;
         min-width: 0 !important;
@@ -71,28 +108,29 @@
         border: 0 !important;
         border-radius: 0 !important;
         transform: none !important;
-        z-index: 2147483646 !important;
         background: #000 !important;
-        overflow: visible !important;
+        overflow: hidden !important;
         pointer-events: auto !important;
       }
 
-      .${ACTIVE_PLAYER_CLASS} video,
-      video.${ACTIVE_VIDEO_CLASS} {
+      #${ROOT_ID} > .${ACTIVE_PLAYER_CLASS} video {
         position: absolute !important;
         inset: 0 !important;
         width: 100% !important;
         height: 100% !important;
         max-width: none !important;
         max-height: none !important;
-        object-fit: contain !important;
         margin: 0 !important;
-        transform: none !important;
+        object-fit: contain !important;
         background: #000 !important;
+        transform: none !important;
       }
 
-      .${ACTIVE_TWEET_CLASS} {
-        isolation: isolate !important;
+      .xvs-firefox-placeholder {
+        display: block !important;
+        box-sizing: border-box !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
       }
     `;
     document.documentElement.appendChild(style);
@@ -101,60 +139,82 @@
   function ensureRoot() {
     ensureStyle();
     let root = document.getElementById(ROOT_ID);
+
     if (!root) {
       root = document.createElement('div');
       root.id = ROOT_ID;
+
       const status = document.createElement('div');
       status.className = 'xvs-status';
       root.appendChild(status);
+
+      const toast = document.createElement('div');
+      toast.className = 'xvs-toast';
+      root.appendChild(toast);
+
       document.documentElement.appendChild(root);
       state.status = status;
+      state.toast = toast;
     } else {
       state.status = root.querySelector('.xvs-status');
+      state.toast = root.querySelector('.xvs-toast');
     }
+
     state.root = root;
     return root;
   }
 
   function setStatus(message, visible = true) {
     ensureRoot();
-    if (state.root) state.root.style.display = visible ? 'block' : 'none';
-    if (state.status) {
-      state.status.textContent = message || '';
-      state.status.style.display = visible ? 'flex' : 'none';
-    }
+    state.root.style.display = 'block';
+    state.status.textContent = message || '';
+    state.status.style.display = visible ? 'flex' : 'none';
+  }
+
+  function showToast(message, ms = 1400) {
+    ensureRoot();
+    if (state.toastTimer) clearTimeout(state.toastTimer);
+    state.toast.textContent = message;
+    state.toast.classList.add('xvs-toast-visible');
+    state.toastTimer = setTimeout(() => {
+      state.toast?.classList.remove('xvs-toast-visible');
+      state.toastTimer = null;
+    }, ms);
   }
 
   function removeRoot() {
+    if (state.toastTimer) clearTimeout(state.toastTimer);
+    state.toastTimer = null;
     state.root?.remove();
     state.root = null;
     state.status = null;
+    state.toast = null;
   }
 
   function getTweetKey(tweet) {
     if (!tweet) return null;
     const links = Array.from(tweet.querySelectorAll('a[href*="/status/"]'));
-    const statusLink = links.find((link) => /\/status\/\d+/.test(link.getAttribute('href') || ''));
-    return statusLink?.getAttribute('href') || null;
-  }
-
-  function getPlayerForVideo(video) {
-    if (!video) return null;
-    return video.closest(PLAYER_SELECTOR) || video.parentElement || null;
+    const link = links.find((item) => /\/status\/\d+/.test(item.getAttribute('href') || ''));
+    return link?.getAttribute('href') || null;
   }
 
   function getTweetForVideo(video) {
     return video?.closest(TWEET_SELECTOR) || null;
   }
 
+  function getPlayerForVideo(video) {
+    return video?.closest(PLAYER_SELECTOR) || video?.parentElement || null;
+  }
+
   function isUsableVideo(video) {
-    if (!(video instanceof HTMLVideoElement)) return false;
-    if (!video.isConnected) return false;
+    if (!(video instanceof HTMLVideoElement) || !video.isConnected) return false;
+    if (video.closest(`#${ROOT_ID}`)) return false;
+
+    const tweet = getTweetForVideo(video);
+    if (!tweet) return false;
 
     const rect = video.getBoundingClientRect();
-    const hasGeometry = rect.width >= 80 && rect.height >= 45;
-    const tweet = getTweetForVideo(video);
-    return Boolean(tweet && hasGeometry);
+    return rect.width >= 80 && rect.height >= 45;
   }
 
   function collectCandidates() {
@@ -163,15 +223,23 @@
 
     for (const video of document.querySelectorAll('video')) {
       if (!isUsableVideo(video)) continue;
+
       const tweet = getTweetForVideo(video);
+      const player = getPlayerForVideo(video);
       const key = getTweetKey(tweet);
-      if (!tweet || !key || seen.has(key)) continue;
+      if (!tweet || !player || !key || seen.has(key)) continue;
+
       seen.add(key);
       const rect = tweet.getBoundingClientRect();
-      candidates.push({ tweet, video, player: getPlayerForVideo(video), key, rect });
+      candidates.push({ tweet, player, video, key, rect });
     }
 
     return candidates.sort((a, b) => a.rect.top - b.rect.top);
+  }
+
+  function findCandidateByKey(key) {
+    if (!key) return null;
+    return collectCandidates().find((item) => item.key === key) || null;
   }
 
   function pickNearestCandidate() {
@@ -189,46 +257,93 @@
     });
   }
 
-  function findCandidateByKey(key) {
-    if (!key) return null;
-    return collectCandidates().find((item) => item.key === key) || null;
-  }
-
-  function cleanupCurrentPlayer() {
+  function stopEndedListener() {
     if (state.currentVideo && state.endedHandler) {
       state.currentVideo.removeEventListener('ended', state.endedHandler);
     }
-
-    state.currentTweet?.classList.remove(ACTIVE_TWEET_CLASS);
-    state.currentPlayer?.classList.remove(ACTIVE_PLAYER_CLASS);
-    state.currentVideo?.classList.remove(ACTIVE_VIDEO_CLASS);
-
-    state.currentTweet = null;
-    state.currentPlayer = null;
-    state.currentVideo = null;
     state.endedHandler = null;
-    state.currentKey = null;
+  }
+
+  function restoreCurrentPlayer({ clearKey = false } = {}) {
+    stopEndedListener();
+
+    const portal = state.portal;
+    const player = state.currentPlayer;
+
+    if (player) {
+      player.classList.remove(ACTIVE_PLAYER_CLASS);
+    }
+
+    if (portal && player) {
+      const { marker, parent, nextSibling } = portal;
+
+      if (marker?.isConnected && marker.parentNode) {
+        marker.parentNode.insertBefore(player, marker);
+        marker.remove();
+      } else if (parent?.isConnected) {
+        const validSibling = nextSibling?.parentNode === parent ? nextSibling : null;
+        parent.insertBefore(player, validSibling);
+      }
+
+      portal.placeholder?.remove();
+    }
+
+    state.portal = null;
+    state.currentVideo = null;
+    state.currentPlayer = null;
+
+    if (clearKey) state.currentKey = null;
+  }
+
+  function portalPlayer(candidate) {
+    const { player, video } = candidate;
+    if (!player?.isConnected || !video?.isConnected) return false;
+
+    const parent = player.parentNode;
+    if (!(parent instanceof Node)) return false;
+
+    const nextSibling = player.nextSibling;
+    const marker = document.createComment('x-video-slideshow-player-anchor');
+    const rect = player.getBoundingClientRect();
+    const placeholder = document.createElement('div');
+    placeholder.className = 'xvs-firefox-placeholder';
+    placeholder.style.width = `${Math.max(1, rect.width)}px`;
+    placeholder.style.height = `${Math.max(1, rect.height)}px`;
+    placeholder.style.maxWidth = '100%';
+
+    parent.insertBefore(marker, player);
+    parent.insertBefore(placeholder, player);
+
+    ensureRoot();
+    player.classList.add(ACTIVE_PLAYER_CLASS);
+    state.root.appendChild(player);
+
+    state.portal = { parent, nextSibling, marker, placeholder };
+    state.currentPlayer = player;
+    state.currentVideo = video;
+    return true;
   }
 
   async function promoteCandidate(candidate, { record = true } = {}) {
-    if (!state.active || !candidate?.video?.isConnected) return false;
+    if (!state.active || !candidate?.key) return false;
 
-    cleanupCurrentPlayer();
-    ensureRoot();
+    restoreCurrentPlayer({ clearKey: false });
 
-    const { tweet, video, player, key } = candidate;
-    tweet.scrollIntoView({ block: 'center', behavior: 'auto' });
-    await sleep(60);
-    if (!state.active || !video.isConnected) return false;
+    const key = candidate.key;
+    const sourceTweet = candidate.tweet;
+    if (sourceTweet?.isConnected) {
+      sourceTweet.scrollIntoView({ block: 'center', behavior: 'auto' });
+      await sleep(80);
+    }
 
-    state.currentTweet = tweet;
-    state.currentVideo = video;
-    state.currentPlayer = player || video;
+    if (!state.active) return false;
+
+    const fresh = findCandidateByKey(key) || candidate;
+    if (!fresh?.video?.isConnected || !fresh?.player?.isConnected) return false;
+
     state.currentKey = key;
 
-    tweet.classList.add(ACTIVE_TWEET_CLASS);
-    state.currentPlayer.classList.add(ACTIVE_PLAYER_CLASS);
-    video.classList.add(ACTIVE_VIDEO_CLASS);
+    if (!portalPlayer(fresh)) return false;
 
     if (record && state.history[state.historyIndex] !== key) {
       state.history = state.history.slice(0, state.historyIndex + 1);
@@ -237,128 +352,165 @@
     }
 
     state.endedHandler = () => {
-      if (state.active) void move(1);
+      if (state.active && !state.navigating) void move(1);
     };
-    video.addEventListener('ended', state.endedHandler, { once: true });
+    state.currentVideo.addEventListener('ended', state.endedHandler, { once: true });
 
     setStatus('', false);
 
     try {
-      await video.play();
+      await state.currentVideo.play();
     } catch {
-      // If autoplay is blocked, X's existing play button remains available.
+      showToast('Autoplay was blocked. Use X’s play button once.');
     }
 
     return true;
   }
 
-  function candidateRelativeToCurrent(direction) {
+  function candidateRelativeToKey(key, direction) {
     const candidates = collectCandidates();
     if (!candidates.length) return null;
 
-    const current = candidates.find((item) => item.key === state.currentKey);
+    const current = candidates.find((item) => item.key === key);
     const currentTop = current?.rect.top ?? window.innerHeight / 2;
 
     if (direction > 0) {
-      return candidates.find((item) => item.key !== state.currentKey && item.rect.top > currentTop + 4 && !state.history.includes(item.key)) || null;
+      return candidates.find((item) =>
+        item.key !== key &&
+        item.rect.top > currentTop + 4 &&
+        !state.history.includes(item.key)
+      ) || null;
     }
 
-    return [...candidates].reverse().find((item) => item.key !== state.currentKey && item.rect.top < currentTop - 4) || null;
+    return [...candidates].reverse().find((item) =>
+      item.key !== key && item.rect.top < currentTop - 4
+    ) || null;
   }
 
   async function locateHistoryKey(key, direction, token) {
     for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
       const found = findCandidateByKey(key);
       if (found) return found;
-      window.scrollBy({ top: direction * window.innerHeight * SCROLL_STEP, behavior: 'auto' });
+
+      window.scrollBy({
+        top: direction * window.innerHeight * SCROLL_STEP,
+        behavior: 'auto'
+      });
       await sleep(SEARCH_DELAY_MS);
     }
+
     return findCandidateByKey(key);
   }
 
-  async function discover(direction, token) {
+  async function discoverFromKey(sourceKey, direction, token) {
     for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
-      const candidate = candidateRelativeToCurrent(direction);
+      const candidate = candidateRelativeToKey(sourceKey, direction);
       if (candidate) return candidate;
 
       setStatus(direction > 0 ? 'Finding the next X video…' : 'Finding the previous X video…', true);
-      window.scrollBy({ top: direction * window.innerHeight * SCROLL_STEP, behavior: 'auto' });
+      window.scrollBy({
+        top: direction * window.innerHeight * SCROLL_STEP,
+        behavior: 'auto'
+      });
       await sleep(SEARCH_DELAY_MS);
     }
-    return candidateRelativeToCurrent(direction);
+
+    return candidateRelativeToKey(sourceKey, direction);
+  }
+
+  async function recoverCurrent(sourceKey) {
+    if (!sourceKey || !state.active) return false;
+    const candidate = findCandidateByKey(sourceKey);
+    if (!candidate) return false;
+    return promoteCandidate(candidate, { record: false });
   }
 
   async function move(direction) {
-    if (!state.active) return;
+    if (!state.active || state.navigating) return;
+
+    state.navigating = true;
     const token = ++state.token;
+    const sourceKey = state.currentKey;
 
-    const previousKey = state.currentKey;
-    cleanupCurrentPlayer();
+    try {
+      restoreCurrentPlayer({ clearKey: false });
+      await sleep(40);
 
-    if (direction < 0 && state.historyIndex > 0) {
-      const targetIndex = state.historyIndex - 1;
-      const targetKey = state.history[targetIndex];
-      const candidate = await locateHistoryKey(targetKey, -1, token);
-      if (!candidate || token !== state.token) {
-        setStatus('Could not reload the previous X video.', true);
+      if (!state.active || token !== state.token) return;
+
+      let candidate = null;
+      let targetIndex = state.historyIndex;
+      let shouldRecord = false;
+
+      if (direction < 0 && state.historyIndex > 0) {
+        targetIndex = state.historyIndex - 1;
+        candidate = await locateHistoryKey(state.history[targetIndex], -1, token);
+      } else if (direction > 0 && state.historyIndex < state.history.length - 1) {
+        targetIndex = state.historyIndex + 1;
+        candidate = await locateHistoryKey(state.history[targetIndex], 1, token);
+      } else {
+        candidate = await discoverFromKey(sourceKey, direction, token);
+        shouldRecord = direction > 0;
+      }
+
+      if (!candidate || token !== state.token || !state.active) {
+        await recoverCurrent(sourceKey);
+        showToast(direction > 0 ? 'No more videos found.' : 'No previous video found.');
         return;
       }
-      state.historyIndex = targetIndex;
-      await promoteCandidate(candidate, { record: false });
-      return;
-    }
 
-    if (direction > 0 && state.historyIndex < state.history.length - 1) {
-      const targetIndex = state.historyIndex + 1;
-      const targetKey = state.history[targetIndex];
-      const candidate = await locateHistoryKey(targetKey, 1, token);
-      if (!candidate || token !== state.token) {
-        setStatus('Could not reload the next X video.', true);
+      if (direction < 0 && state.historyIndex <= 0 && !state.history.includes(candidate.key)) {
+        state.history.unshift(candidate.key);
+        targetIndex = 0;
+      }
+
+      if (!shouldRecord && state.history.includes(candidate.key)) {
+        targetIndex = state.history.indexOf(candidate.key);
+      }
+
+      const promoted = await promoteCandidate(candidate, { record: shouldRecord });
+      if (!promoted) {
+        await recoverCurrent(sourceKey);
+        showToast('That X video disappeared while navigating.');
         return;
       }
-      state.historyIndex = targetIndex;
-      await promoteCandidate(candidate, { record: false });
-      return;
-    }
 
-    if (previousKey) state.currentKey = previousKey;
-    const candidate = await discover(direction, token);
-    if (!candidate || token !== state.token) {
-      setStatus('No more X videos found on this page.', true);
-      return;
+      if (!shouldRecord) state.historyIndex = targetIndex;
+    } finally {
+      state.navigating = false;
     }
+  }
 
-    if (direction < 0 && !state.history.includes(candidate.key)) {
-      state.history.unshift(candidate.key);
-      state.historyIndex = 0;
-      await promoteCandidate(candidate, { record: false });
-      return;
-    }
-
-    await promoteCandidate(candidate, { record: direction > 0 });
+  function isTypingTarget(target) {
+    return target instanceof HTMLElement && (
+      target.matches('input, textarea, select') ||
+      target.isContentEditable ||
+      Boolean(target.closest('[contenteditable="true"]'))
+    );
   }
 
   function onKeyDown(event) {
-    if (!state.active || event.defaultPrevented) return;
-    const target = event.target;
-    if (target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable)) return;
+    if (!state.active || event.defaultPrevented || isTypingTarget(event.target)) return;
 
-    if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'j') {
+    const key = event.key.toLowerCase();
+
+    if (event.key === 'ArrowRight' || key === 'j') {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       void move(1);
       return;
     }
 
-    if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'k') {
+    if (event.key === 'ArrowLeft' || key === 'k') {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       void move(-1);
       return;
     }
 
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopImmediatePropagation();
       deactivate();
     }
   }
@@ -382,15 +534,19 @@
     if (state.active) return true;
 
     state.active = true;
+    state.navigating = false;
     state.token += 1;
     state.history = [];
     state.historyIndex = -1;
+    state.currentKey = null;
+
     ensureRoot();
     setStatus('Starting X Video Slideshow…', true);
     document.addEventListener('keydown', onKeyDown, true);
 
     const token = state.token;
     const candidate = await findInitialCandidate(token);
+
     if (!candidate || token !== state.token || !state.active) {
       if (state.active) {
         setStatus('No X video found. Open a feed, profile, search, or Media tab containing a video, then try again.', true);
@@ -398,7 +554,11 @@
       return true;
     }
 
-    await promoteCandidate(candidate);
+    const promoted = await promoteCandidate(candidate);
+    if (!promoted && state.active) {
+      setStatus('Found a video, but X replaced its player before it could be opened. Try clicking the extension again.', true);
+    }
+
     return true;
   }
 
@@ -406,8 +566,9 @@
     if (!state.active) return false;
 
     state.active = false;
+    state.navigating = false;
     state.token += 1;
-    cleanupCurrentPlayer();
+    restoreCurrentPlayer({ clearKey: true });
     document.removeEventListener('keydown', onKeyDown, true);
     removeRoot();
     return false;
