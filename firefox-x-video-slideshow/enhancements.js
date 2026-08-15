@@ -7,43 +7,27 @@
 
   const { state } = app;
   let autoPip = true;
-  let rootObserver = null;
   let boundVideo = null;
   let autoPipBlocked = false;
   let mediaSessionBound = false;
 
   const pipIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><rect x="11" y="11" width="7" height="5" rx="1"/></svg>';
-
-  const ACTIONS = [
-    { id: 'xms-like', label: 'Like', key: 'L' },
-    { id: 'xms-repost', label: 'Repost', key: 'R' },
-    { id: 'xms-bookmark', label: 'Bookmark', key: 'B' },
-    { id: 'xms-open', label: 'Open post', key: 'O' },
+  const actions = [
+    ['xms-like', 'Like', 'L'],
+    ['xms-repost', 'Repost', 'R'],
+    ['xms-bookmark', 'Bookmark', 'B'],
+    ['xms-open', 'Open post', 'O'],
   ];
 
-  function overlay() {
-    return document.getElementById(app.OVERLAY_ID);
-  }
-
-  function activeVideo() {
-    const video = state.activeVideo?.video;
-    return video instanceof HTMLVideoElement ? video : null;
-  }
+  const overlay = () => document.getElementById(app.OVERLAY_ID);
+  const activeVideo = () => state.activeVideo?.video instanceof HTMLVideoElement ? state.activeVideo.video : null;
 
   function pipSupported(video = activeVideo()) {
-    return Boolean(
-      video &&
-      typeof video.requestPictureInPicture === 'function' &&
-      document.pictureInPictureEnabled !== false
-    );
-  }
-
-  function pipButton() {
-    return overlay()?.querySelector('#xms-pip') || null;
+    return Boolean(video && typeof video.requestPictureInPicture === 'function' && document.pictureInPictureEnabled !== false);
   }
 
   function syncPipButton() {
-    const button = pipButton();
+    const button = overlay()?.querySelector('#xms-pip');
     if (!button) return;
     const video = activeVideo();
     const supported = pipSupported(video);
@@ -69,9 +53,7 @@
     if (document.pictureInPictureElement === video) return true;
 
     try {
-      if (document.pictureInPictureElement && document.exitPictureInPicture) {
-        await document.exitPictureInPicture();
-      }
+      if (document.pictureInPictureElement && document.exitPictureInPicture) await document.exitPictureInPicture();
       await video.requestPictureInPicture();
       autoPipBlocked = false;
       syncPipButton();
@@ -94,9 +76,7 @@
   async function togglePip() {
     const video = activeVideo();
     if (video && document.pictureInPictureElement === video) {
-      try {
-        await document.exitPictureInPicture?.();
-      } catch (error) {
+      try { await document.exitPictureInPicture?.(); } catch (error) {
         console.debug('X Media Slideshow: Picture-in-Picture exit failed', error);
       }
       syncPipButton();
@@ -105,32 +85,27 @@
     await requestPip('manual');
   }
 
-  function bindVideoPipEvents() {
+  function bindVideoEvents() {
     const video = activeVideo();
-    if (boundVideo === video) {
-      syncPipButton();
-      return;
-    }
-
+    if (boundVideo === video) return syncPipButton();
     if (boundVideo) {
       boundVideo.removeEventListener('enterpictureinpicture', syncPipButton);
       boundVideo.removeEventListener('leavepictureinpicture', syncPipButton);
     }
     boundVideo = video;
-    if (boundVideo) {
-      boundVideo.addEventListener('enterpictureinpicture', syncPipButton);
-      boundVideo.addEventListener('leavepictureinpicture', syncPipButton);
+    if (video) {
+      video.addEventListener('enterpictureinpicture', syncPipButton);
+      video.addEventListener('leavepictureinpicture', syncPipButton);
     }
     syncPipButton();
   }
 
-  function decorateActionButton(button, label, key) {
+  function decorateButton(button, label, key) {
     if (!button || button.dataset.xmsEnhanced === 'true') return;
     button.dataset.xmsEnhanced = 'true';
     button.classList.add('xms-social-action');
     button.title = `${label} (${key})`;
     button.setAttribute('aria-label', `${label} (${key})`);
-
     const text = document.createElement('span');
     text.className = 'xms-social-label';
     text.textContent = label;
@@ -143,7 +118,6 @@
   function ensurePipButton(rail) {
     let button = rail.querySelector('#xms-pip');
     if (button) return button;
-
     button = document.createElement('button');
     button.id = 'xms-pip';
     button.type = 'button';
@@ -160,60 +134,36 @@
     return button;
   }
 
+  function bindPipMediaSession() {
+    if (mediaSessionBound || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', (details) => {
+        if (!state.running) return;
+        if (autoPip || details?.enterPictureInPictureReason === 'useraction') void requestPip('media-session');
+      });
+      mediaSessionBound = true;
+    } catch {}
+  }
+
+  function unbindPipMediaSession() {
+    if (!mediaSessionBound || !('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.setActionHandler('enterpictureinpicture', null); } catch {}
+    mediaSessionBound = false;
+  }
+
   function enhanceOverlay() {
     const root = overlay();
     if (!root) {
-      unbindMediaSession();
+      unbindPipMediaSession();
       return;
     }
-
     const rail = root.querySelector('.xms-social');
     if (!rail) return;
     rail.classList.add('xms-action-rail');
     ensurePipButton(rail);
-    for (const action of ACTIONS) {
-      decorateActionButton(root.querySelector(`#${action.id}`), action.label, action.key);
-    }
-    bindVideoPipEvents();
-    bindMediaSession();
-  }
-
-  function safeMediaAction(action, handler) {
-    try {
-      navigator.mediaSession?.setActionHandler(action, handler);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function bindMediaSession() {
-    if (mediaSessionBound || !('mediaSession' in navigator)) return;
-    mediaSessionBound = true;
-
-    safeMediaAction('enterpictureinpicture', (details) => {
-      if (autoPip || details?.enterPictureInPictureReason === 'useraction') {
-        void requestPip('media-session');
-      }
-    });
-    safeMediaAction('nexttrack', () => app.controller?.next('media-session'));
-    safeMediaAction('previoustrack', () => app.controller?.previous('media-session'));
-    safeMediaAction('play', () => {
-      const video = activeVideo();
-      if (video?.paused) app.player?.togglePlayPause();
-    });
-    safeMediaAction('pause', () => {
-      const video = activeVideo();
-      if (video && !video.paused) app.player?.togglePlayPause();
-    });
-  }
-
-  function unbindMediaSession() {
-    if (!mediaSessionBound || !('mediaSession' in navigator)) return;
-    mediaSessionBound = false;
-    for (const action of ['enterpictureinpicture', 'nexttrack', 'previoustrack', 'play', 'pause']) {
-      try { navigator.mediaSession.setActionHandler(action, null); } catch {}
-    }
+    for (const [id, label, key] of actions) decorateButton(root.querySelector(`#${id}`), label, key);
+    bindVideoEvents();
+    bindPipMediaSession();
   }
 
   function onVisibilityChange() {
@@ -223,10 +173,7 @@
       if (video && !video.paused && !video.ended && document.pictureInPictureElement !== video) {
         void requestPip('auto-hidden');
       }
-      return;
-    }
-
-    if (autoPipBlocked) {
+    } else if (autoPipBlocked) {
       autoPipBlocked = false;
       app.player?.toast('Auto PiP was blocked by Firefox. Click PiP once to authorize it.', 2800);
     }
@@ -251,23 +198,19 @@
   }
 
   browser.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.autoPictureInPicture) {
-      autoPip = changes.autoPictureInPicture.newValue !== false;
-    }
+    if (area !== 'sync' || !changes.autoPictureInPicture) return;
+    autoPip = changes.autoPictureInPicture.newValue !== false;
   });
 
   document.addEventListener('visibilitychange', onVisibilityChange, true);
   document.addEventListener('keydown', onKeyDown, true);
-  app.on('positionchange', () => {
-    queueMicrotask(() => {
-      enhanceOverlay();
-      bindVideoPipEvents();
-      if (document.hidden && autoPip) void requestPip('position-change');
-    });
-  });
+  app.on('positionchange', () => queueMicrotask(() => {
+    enhanceOverlay();
+    bindVideoEvents();
+    if (document.hidden && autoPip) void requestPip('position-change');
+  }));
 
-  rootObserver = new MutationObserver(() => enhanceOverlay());
-  rootObserver.observe(document.documentElement, { childList: true, subtree: true });
-
+  const observer = new MutationObserver(enhanceOverlay);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
   void loadPreference().then(enhanceOverlay);
 })();
