@@ -45,6 +45,8 @@ async function ensureContentScript(tabId) {
     // Expected on the first click in a tab.
   }
 
+  // Player runtime loads first. The interaction layer only adds wheel handling,
+  // passive counting, and Firefox audible-autoplay recovery.
   await browser.scripting.executeScript({
     target: { tabId },
     files: ["content.js", "interaction.js"]
