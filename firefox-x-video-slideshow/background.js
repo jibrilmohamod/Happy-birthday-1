@@ -27,17 +27,27 @@ async function setActionState(tabId, active, error = false) {
   });
 }
 
+async function injectInteractionLayer(tabId) {
+  await browser.scripting.executeScript({
+    target: { tabId },
+    files: ["interaction.js"]
+  });
+}
+
 async function ensureContentScript(tabId) {
   try {
     const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
-    if (ping?.loaded) return true;
+    if (ping?.loaded) {
+      await injectInteractionLayer(tabId);
+      return true;
+    }
   } catch {
     // Expected on the first click in a tab.
   }
 
   await browser.scripting.executeScript({
     target: { tabId },
-    files: ["content.js"]
+    files: ["content.js", "interaction.js"]
   });
 
   const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
