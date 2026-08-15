@@ -141,18 +141,20 @@
     video.muted = false;
     const result = video.play();
 
-    Promise.resolve(result).then(() => {
-      blockedAttempts = 0;
-      hideSoundGate();
-    }).catch((error) => {
-      blockedAttempts += 1;
-      console.debug("X Video Slideshow: audible playback remained blocked", error);
-      showSoundGate(
-        blockedAttempts > 1
-          ? "Firefox is blocking sound autoplay. Allow Audio and Video for x.com"
-          : "Enable sound autoplay"
-      );
-    });
+    Promise.resolve(result)
+      .then(() => {
+        blockedAttempts = 0;
+        hideSoundGate();
+      })
+      .catch((error) => {
+        blockedAttempts += 1;
+        console.debug("X Video Slideshow: audible playback remained blocked", error);
+        showSoundGate(
+          blockedAttempts > 1
+            ? "Firefox is blocking sound autoplay. Allow Audio and Video for x.com"
+            : "Enable sound autoplay"
+        );
+      });
   }
 
   function onSoundGatePointerDown(event) {
