@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Browse X videos as a slideshow using X's native player and controls.",
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*"
   ],
   "action": {
-    "default_title": "Toggle X Video Slideshow"
+    "default_title": "Start X Video Slideshow"
   },
   "background": {
     "scripts": ["background.js"]
