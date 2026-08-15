@@ -18,8 +18,16 @@
         "https://x.com/*",
         "https://twitter.com/*"
       ],
-      "css": ["overlay.css", "enhancements.css"],
-      "js": ["core.js", "player.js", "controller.js", "enhancements.js"],
+      "css": [
+        "overlay.css",
+        "enhancements.css"
+      ],
+      "js": [
+        "core.js",
+        "player.js",
+        "controller.js",
+        "enhancements.js"
+      ],
       "run_at": "document_idle"
     }
   ],
