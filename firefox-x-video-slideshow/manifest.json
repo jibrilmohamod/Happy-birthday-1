@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Fullscreen X video slideshow for Firefox using X's existing video player controls.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
