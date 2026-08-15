@@ -1,51 +1,67 @@
 # X Video Slideshow for Firefox
 
-A small Firefox WebExtension that turns an X timeline/search/profile page into a video-only slideshow while keeping **X's native video player and controls**.
+Firefox WebExtension for browsing X/Twitter videos as a fullscreen slideshow.
 
-No replacement player. No injected playback buttons. No custom overlay controls.
+## v0.2 architecture
 
-## What it does
+The first prototype tried to scroll the normal X feed and was too invisible and fragile. v0.2 takes a different approach.
 
-- Click the extension toolbar button to start or stop slideshow mode.
-- Starts from the video tweet nearest the middle of the viewport.
-- Skips tweets that do not contain video media.
-- Uses X's existing `<video>` element, playback UI, volume, progress bar, fullscreen control, captions, and tweet actions.
-- Automatically advances to the next video tweet when the current video ends.
-- Scrolls X normally, allowing its infinite timeline to load more tweets.
-- Keeps navigation history so moving backward remains usable even when X virtualizes timeline items.
+When slideshow mode starts, the extension finds a real X `<video>` inside a tweet and promotes **X's existing video-player container** to a fixed fullscreen layer. It does not create a second video element and does not replace X's playback controls.
 
-## Keyboard navigation
+If no video is immediately available, the extension shows a visible fullscreen diagnostic state while it scrolls the underlying X feed looking for one. This means activation can no longer fail silently.
 
-These shortcuts are intercepted only while slideshow mode is active and while you are not typing into an input/editor:
+## Controls
 
-- `J` or `Arrow Down`: next video
-- `K` or `Arrow Up`: previous video
-- `Esc`: stop slideshow mode
+- Click the Firefox toolbar button: start or stop slideshow mode
+- `Right Arrow` or `J`: next video
+- `Left Arrow` or `K`: previous video
+- `Esc`: exit slideshow mode
 
-Space and other playback controls are deliberately left to X.
+Playback, volume, seeking and the other player interactions remain X's responsibility.
+
+Videos automatically advance when the current X video fires its `ended` event.
 
 ## Install temporarily in Firefox
 
-1. Download or clone this branch.
-2. Open `about:debugging#/runtime/this-firefox` in Firefox.
-3. Click **Load Temporary Add-on…**.
-4. Select `manifest.json` from this directory.
-5. Open `https://x.com`, then click the extension toolbar button.
+1. Download the `agent/firefox-x-video-slideshow` branch.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Remove any older temporary copy of **X Video Slideshow**.
+4. Click **Load Temporary Add-on…**.
+5. Select `firefox-x-video-slideshow/manifest.json`.
+6. Open or reload `https://x.com`.
+7. Navigate to a feed, profile, search, or Media page containing video.
+8. Click the extension toolbar button.
 
-Temporary extensions remain installed until Firefox restarts.
+Temporary extensions are removed when Firefox restarts.
 
-## Firefox compatibility
+## What you should see
 
-This is a Manifest V3 extension targeting Firefox 109+.
+Immediately after clicking the toolbar button you should see a black fullscreen layer saying **Starting X Video Slideshow…**.
 
-Firefox MV3 uses an event-page background script through `background.scripts`, rather than Chrome's service-worker-only model.
+Then one of these happens:
+
+- An X video player becomes fullscreen and keeps X's own controls.
+- The diagnostic screen says it is looking for a video while the feed scrolls.
+- After the search limit, it explicitly reports that no X video was found.
+
+If none of those three things happens, the failure is in extension activation rather than X video detection.
+
+## Firefox implementation
+
+This is Manifest V3 for Firefox 109+.
+
+The extension uses `activeTab` plus the `scripting` API. The content script is injected directly in response to the toolbar click, rather than depending on a page-load content script.
+
+The Firefox MV3 background remains an event-page script through `background.scripts`.
 
 ## Privacy
 
-The extension does not make network requests, collect analytics, transmit data, or modify tweets. It only reads the X page DOM and scrolls/navigates video tweets locally in the current tab.
+No analytics, remote API calls, tracking, or data upload. The extension only reads and temporarily styles DOM elements in the active X tab.
 
 ## Known limitations
 
-X changes its DOM frequently. The extension intentionally depends on a very small set of stable-ish selectors (`article[data-testid="tweet"]`, status links, `video`, and `data-testid="videoPlayer"`) to reduce breakage.
+X changes its DOM frequently. v0.2 intentionally uses only a small selector surface: tweet articles, status links, `<video>`, and `data-testid="videoPlayer"`.
 
-Firefox/X autoplay policy can occasionally prevent programmatic playback. If that happens, start the video once using X's own play button. Slideshow navigation still works.
+X timeline virtualization can unload older tweets while navigating. The extension stores tweet status URLs as navigation history and scrolls the feed to reload them when possible.
+
+Firefox/X autoplay policy can block automatic playback. In that case, use X's own play button on the fullscreen player.
