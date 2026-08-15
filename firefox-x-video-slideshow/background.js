@@ -27,31 +27,39 @@ async function setActionState(tabId, active, error = false) {
   });
 }
 
+async function ensureContentScript(tabId) {
+  try {
+    const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
+    if (ping?.loaded) return true;
+  } catch {
+    // Expected on the first click in a tab.
+  }
+
+  await browser.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
+  });
+
+  const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
+  return Boolean(ping?.loaded);
+}
+
 async function toggleSlideshow(tab) {
   if (!tab.id || !tab.url || !X_URL.test(tab.url)) {
     if (tab.id) await setActionState(tab.id, false, true);
     return;
   }
 
-  let response;
-
   try {
-    response = await browser.tabs.sendMessage(tab.id, { type: "XVS_TOGGLE" });
-  } catch {
-    try {
-      await browser.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content.js"]
-      });
-      response = await browser.tabs.sendMessage(tab.id, { type: "XVS_TOGGLE" });
-    } catch (error) {
-      console.error("X Video Slideshow failed to initialize.", error);
-      await setActionState(tab.id, false, true);
-      return;
-    }
-  }
+    const ready = await ensureContentScript(tab.id);
+    if (!ready) throw new Error("Content script did not respond after injection.");
 
-  await setActionState(tab.id, Boolean(response?.active));
+    const response = await browser.tabs.sendMessage(tab.id, { type: "XVS_TOGGLE" });
+    await setActionState(tab.id, Boolean(response?.active));
+  } catch (error) {
+    console.error("X Video Slideshow failed to initialize.", error);
+    await setActionState(tab.id, false, true);
+  }
 }
 
 browser.action.onClicked.addListener((tab) => {
