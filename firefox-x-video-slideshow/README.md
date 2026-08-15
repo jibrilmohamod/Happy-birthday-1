@@ -2,44 +2,40 @@
 
 Firefox WebExtension for browsing X/Twitter videos as a fullscreen slideshow while keeping X's own video player controls.
 
-## v0.4 behavior
+## v0.4.1 stability hotfix
 
-The extension now uses a buffered video queue rather than searching only when you ask for the next item.
+v0.4.0 tried to keep a video buffer filled by continuously scrolling the same X tab that was also playing the fullscreen video. That interfered with X's virtualized timeline, caused repeated loading, and could break autoplay/player state.
 
-While a video is playing, the hidden X feed is scanned and advanced in the background to keep up to 12 videos buffered ahead. Every discovered video is stored by its tweet/status URL so the slideshow can move through the loaded set even as X virtualizes its timeline.
+v0.4.1 removes that background scrolling entirely and restores the stable v0.3 player lifecycle.
 
-The fullscreen overlay includes a live counter such as:
-
-`3 / 11 loaded · 8 ahead · fetching`
-
-The counter shows the current position, total videos discovered in the session, how many are buffered ahead, and whether the extension is currently loading more.
+The active playback tab stays still while the current video is playing. X is only scrolled when you actually navigate to another video or when the extension needs to locate the first video.
 
 ## Navigation
 
 - Mouse wheel / trackpad scroll down: next video
 - Mouse wheel / trackpad scroll up: previous video
-- `Arrow Down`, `Arrow Right`, `Page Down`, or `J`: next video
-- `Arrow Up`, `Arrow Left`, `Page Up`, or `K`: previous video
+- `Arrow Right` or `J`: next video
+- `Arrow Left` or `K`: previous video
 - `Esc`: exit slideshow mode
 - Firefox toolbar button: start or stop slideshow mode
 
-Wheel input uses a threshold and cooldown so one trackpad gesture does not accidentally skip multiple videos.
+Wheel handling lives in a separate interaction script so it cannot alter the player lifecycle.
 
 Videos automatically advance when the current X video fires its `ended` event.
 
-## Buffering model
+## Loaded-video count
 
-The extension continuously maintains an ahead buffer instead of scrolling forever. The target is 12 videos ahead.
+The top-right badge shows how many unique video tweets X has actually rendered during the current page session, for example:
 
-As you consume videos, the background loader resumes scrolling and scanning X to refill that buffer. This avoids unbounded network and DOM activity while still making the next videos available before you reach them.
+`7 loaded`
 
-If the buffer reaches zero, moving forward shows `Loading more X videos…` and performs an on-demand fetch before giving up.
+This counter is passive. It observes X's DOM and never scrolls the feed or triggers loading by itself.
 
 ## Fullscreen player
 
 The extension uses the real X `data-testid="videoPlayer"` DOM node. It temporarily moves that player into a top-level fullscreen shell, preserving X's existing playback UI instead of creating a replacement video element.
 
-Before switching videos, the old player is restored when possible. If X has already virtualized its original tweet away, the stale player is discarded and the next real X player is promoted.
+Before switching videos, the current player is restored to its original DOM position. Navigation is serialized so overlapping moves cannot corrupt player state.
 
 ## Install temporarily in Firefox
 
@@ -58,8 +54,8 @@ Temporary extensions are removed when Firefox restarts.
 
 Manifest V3 for Firefox 109+.
 
-The extension uses `activeTab` and `scripting`. `content.js` is injected in response to the toolbar action instead of depending on a page-load content script.
+The extension uses `activeTab` and `scripting`. `content.js` and the lightweight `interaction.js` layer are injected in response to the toolbar action instead of depending on a page-load content script.
 
 ## Privacy
 
-No analytics, remote API calls, tracking, or data upload. The extension only reads X's page DOM and programmatically scrolls the active X tab to discover additional videos.
+No analytics, remote API calls, tracking, or data upload. The extension only reads X's page DOM and scrolls the active tab when navigation requires another video.
