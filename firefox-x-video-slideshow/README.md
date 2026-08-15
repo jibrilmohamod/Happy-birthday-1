@@ -2,36 +2,48 @@
 
 Firefox WebExtension for browsing X/Twitter videos in a standalone fullscreen wrapper.
 
-## v0.5.0: standalone wrapper
+## v0.6.1: capture wrapper
 
-v0.5 removes the previous approach of promoting X's `data-testid="videoPlayer"` container. The extension now owns the fullscreen shell and uses only the raw X `<video>` element as the media source.
+v0.6.1 removes the remaining dependency on moving X's `<video>` element out of its React-owned DOM tree.
 
-When a video opens, the extension temporarily moves that `<video>` element into its own top-level overlay and enables Firefox's native HTML video controls. X's surrounding React player, layout containers and custom playback controls are no longer part of the fullscreen player.
+The X video now stays exactly where X rendered it. The extension uses Firefox `HTMLMediaElement.captureStream()` (with the Firefox-prefixed fallback when needed) to feed one persistent extension-owned fullscreen video element.
 
-This avoids the transformed-container positioning bug and removes most of the player state that X was able to break while navigating.
+This removes the v0.5 failure where X noticed the detached source, emptied/recreated it, and triggered repeated `Reloading current video…` recovery cycles and stutter.
 
-## Sound and autoplay
+## Stability changes
 
-Firefox can block script-started audible media until the page has user activation. If audible playback is not already allowed, v0.5 shows a one-time **Start slideshow with sound** button.
+- No source-video reparenting.
+- No `Reloading current video…` recovery loop.
+- No background scrolling or prefetch timer while a video is playing.
+- X is only scrolled when you explicitly navigate or when the first video must be located.
+- A failed next/previous lookup performs one rollback attempt to the previous video instead of looping.
+- The currently rendered X source is muted only at its physical output. The captured stream still carries its audio according to the capture-from-element specification.
 
-After that real click, subsequent wheel/keyboard navigation reuses the page's sticky user activation. If X itself tries to pause the detached video without a recent user pause, the wrapper automatically resumes it.
+## Sound
 
-Muted videos continue to start without the sound gate when Firefox permits muted autoplay.
+The wrapper output starts with:
 
-## Continuous discovery
+- sound **on**
+- volume **100%**
+- playback rate **1x**
 
-The X feed is now used only as a discovery layer behind the wrapper.
+The X source video itself is muted to prevent duplicate audio. Muting the source element does not mute captured audio.
 
-- The extension keeps an ordered catalog of video tweet/status URLs.
-- It continuously scrolls the hidden feed until it has up to 8 videos discovered ahead of the current video.
-- The loader backs off after repeated scans with no new videos instead of showing an endless loading loop.
-- The top-right badge shows the current position, total discovered videos, videos ahead, and whether discovery is fetching or waiting.
+If Firefox's autoplay policy blocks the extension-owned audible output, a **Start with sound** button appears. Clicking it is only needed when Firefox requires a real page activation for audible media.
 
-Example:
+Mute and volume changes made in the wrapper are preserved while moving between videos during the same slideshow session.
 
-`3/11 loaded · 8 ahead · fetching`
+## Wrapper controls
 
-If X virtualizes or empties the detached video while discovery is running, the extension remembers the tweet key and playback time, reloads the tweet, and attempts to resume the current video.
+The extension now owns its playback controls:
+
+- play / pause
+- mute / sound
+- volume
+- seek bar and elapsed/duration time
+- playback rate from 0.5x to 2x
+
+The seek bar controls the real X source video's `currentTime`; the fullscreen display is only the captured presentation layer.
 
 ## Navigation
 
@@ -42,18 +54,15 @@ If X virtualizes or empties the detached video while discovery is running, the e
 - `Esc`: exit slideshow mode
 - Firefox toolbar button: start or stop slideshow mode
 
-The current video automatically advances when it ends.
+The current video automatically moves forward when the real X source reaches `ended`.
 
-## Player controls
+## Video count
 
-The fullscreen video uses Firefox's native `<video controls>` UI for:
+The top-right badge shows the current position and how many unique video tweets X has actually rendered during the session, for example:
 
-- play/pause
-- seeking
-- volume/mute
-- fullscreen/native media controls
+`2/5 seen`
 
-The wrapper preserves the chosen mute state, volume, and playback rate when moving between videos.
+The counter is passive. v0.6.1 intentionally does not scroll X in the background just to increase the count, because doing that while playback is active was the main source of virtualization and stuttering failures in previous builds.
 
 ## Install temporarily in Firefox
 
@@ -66,7 +75,7 @@ The wrapper preserves the chosen mute state, volume, and playback rate when movi
 7. Open a feed, profile, search, or Media page containing video.
 8. Click the extension toolbar button.
 
-Confirm the extension version is **0.5.0** before testing.
+Confirm the extension version is **0.6.1** before testing.
 
 Temporary extensions are removed when Firefox restarts.
 
@@ -74,8 +83,8 @@ Temporary extensions are removed when Firefox restarts.
 
 Manifest V3 for Firefox 109+ using `activeTab`, `scripting`, `action.onClicked`, and Firefox's `background.scripts` event-page model.
 
-`content.js` is injected on demand when the toolbar button is clicked. v0.5 no longer has a separate `interaction.js` layer.
+`content.js` is injected on demand when the toolbar button is clicked. There is no separate interaction layer.
 
 ## Privacy
 
-No analytics, remote API calls, tracking, or data upload. The extension only reads and temporarily rearranges X page DOM in the active tab and scrolls the feed locally to discover more videos.
+No analytics, remote API calls, tracking, or data upload. The extension only reads X's page DOM, captures the currently rendered X media element locally, and scrolls the active X tab when navigation requires another video.
