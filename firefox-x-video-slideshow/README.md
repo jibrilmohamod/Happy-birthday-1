@@ -10,7 +10,7 @@ The extension detects the failure where a newly opened unmuted video begins and 
 
 Clicking that button starts the video during a real trusted pointer event. That is the browser-supported way to establish user activation for audible playback on the X page.
 
-If Firefox still blocks audible autoplay after repeated attempts, allow **Audio and Video** autoplay for `x.com` using Firefox's site permissions.
+If Firefox still blocks audible autoplay after repeated attempts, allow **Audio and Video** autoplay for `x.com` using Firefox's site permissions. Firefox exposes this from the autoplay/site-permission control in the address bar or from Settings > Privacy & Security > Permissions > Autoplay.
 
 The stable v0.3 player runtime remains unchanged.
 
