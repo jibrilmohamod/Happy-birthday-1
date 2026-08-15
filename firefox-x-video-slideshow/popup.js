@@ -2,6 +2,7 @@
 
 const ui = {
   button: document.querySelector('#toggle'),
+  autoPip: document.querySelector('#autoPip'),
   includeImages: document.querySelector('#includeImages'),
   interval: document.querySelector('#imageInterval'),
   intervalRow: document.querySelector('#intervalRow'),
@@ -22,7 +23,12 @@ async function activeXTab() {
 }
 
 async function loadPreferences() {
-  const values = await browser.storage.sync.get({ includeImages: false, imageIntervalSeconds: 3 });
+  const values = await browser.storage.sync.get({
+    autoPictureInPicture: true,
+    includeImages: false,
+    imageIntervalSeconds: 3,
+  });
+  ui.autoPip.checked = values.autoPictureInPicture !== false;
   ui.includeImages.checked = Boolean(values.includeImages);
   ui.interval.value = String(values.imageIntervalSeconds || 3);
   showInterval();
@@ -30,6 +36,7 @@ async function loadPreferences() {
 
 async function savePreferences() {
   await browser.storage.sync.set({
+    autoPictureInPicture: ui.autoPip.checked,
     includeImages: ui.includeImages.checked,
     imageIntervalSeconds: Number(ui.interval.value) || 3,
   });
@@ -67,6 +74,7 @@ async function refresh() {
   }
 }
 
+ui.autoPip.addEventListener('change', savePreferences);
 ui.includeImages.addEventListener('change', async () => { showInterval(); await savePreferences(); });
 ui.interval.addEventListener('change', savePreferences);
 ui.button.addEventListener('click', async () => {
