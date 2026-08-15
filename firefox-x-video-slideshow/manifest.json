@@ -1,19 +1,19 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.6.1",
-  "description": "Stable fullscreen X video capture wrapper for Firefox with sound-on playback and scroll navigation.",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": [
-    "https://x.com/*",
-    "https://twitter.com/*"
+  "version": "0.7.0",
+  "description": "Firefox port of Twitter Video Slideshow v3's stable overlay playback model.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
+  "action": { "default_title": "Start X Video Slideshow" },
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
   ],
-  "action": {
-    "default_title": "Start X Video Slideshow"
-  },
-  "background": {
-    "scripts": ["background.js"]
-  },
   "browser_specific_settings": {
     "gecko": {
       "id": "x-video-slideshow@jibrilmohamod.github.io",
