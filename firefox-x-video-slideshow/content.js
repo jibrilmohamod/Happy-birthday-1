@@ -6,46 +6,25 @@
   const ROOT_ID = 'xvs-firefox-root';
   const STYLE_ID = 'xvs-firefox-style';
   const ACTIVE_PLAYER_CLASS = 'xvs-firefox-portal-player';
-
-  const SEARCH_ATTEMPTS = 18;
-  const SEARCH_DELAY_MS = 260;
-  const SCROLL_STEP = 0.78;
-
-  const PREFETCH_AHEAD_TARGET = 12;
-  const PREFETCH_IDLE_MS = 500;
-  const PREFETCH_SCROLL_DELAY_MS = 320;
-  const PREFETCH_SCROLL_STEP = 0.72;
-
-  const WHEEL_THRESHOLD = 70;
-  const WHEEL_COOLDOWN_MS = 360;
+  const SEARCH_ATTEMPTS = 20;
+  const SEARCH_DELAY_MS = 300;
+  const SCROLL_STEP = 0.86;
 
   const state = {
     active: false,
     navigating: false,
     token: 0,
-
     currentKey: null,
-    currentIndex: -1,
     currentVideo: null,
     currentPlayer: null,
     endedHandler: null,
     portal: null,
-
-    catalog: [],
-    catalogSet: new Set(),
-    positions: new Map(),
-
+    history: [],
+    historyIndex: -1,
     root: null,
     status: null,
     toast: null,
-    counter: null,
-    toastTimer: null,
-
-    prefetchGeneration: 0,
-    prefetching: false,
-
-    wheelAccumulator: 0,
-    wheelCooldownUntil: 0
+    toastTimer: null
   };
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,8 +42,6 @@
         height: 100vh !important;
         z-index: 2147483646 !important;
         overflow: hidden !important;
-        overscroll-behavior: none !important;
-        touch-action: none !important;
         background: #000 !important;
         color: #fff !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
@@ -90,28 +67,9 @@
         pointer-events: none !important;
       }
 
-      #${ROOT_ID} .xvs-counter {
-        position: absolute !important;
-        top: 18px !important;
-        right: 18px !important;
-        z-index: 2147483647 !important;
-        box-sizing: border-box !important;
-        padding: 9px 12px !important;
-        border: 1px solid rgba(255,255,255,0.18) !important;
-        border-radius: 999px !important;
-        background: rgba(15, 20, 25, 0.82) !important;
-        backdrop-filter: blur(10px) !important;
-        color: #fff !important;
-        font-size: 13px !important;
-        font-weight: 650 !important;
-        line-height: 1 !important;
-        white-space: nowrap !important;
-        pointer-events: none !important;
-      }
-
       #${ROOT_ID} .xvs-toast {
         position: absolute !important;
-        top: 64px !important;
+        top: 20px !important;
         left: 50% !important;
         z-index: 2147483647 !important;
         transform: translateX(-50%) !important;
@@ -119,7 +77,7 @@
         box-sizing: border-box !important;
         padding: 10px 14px !important;
         border-radius: 999px !important;
-        background: rgba(32, 35, 39, 0.94) !important;
+        background: rgba(32, 35, 39, 0.92) !important;
         color: #fff !important;
         font-size: 14px !important;
         font-weight: 600 !important;
@@ -180,8 +138,8 @@
 
   function ensureRoot() {
     ensureStyle();
-
     let root = document.getElementById(ROOT_ID);
+
     if (!root) {
       root = document.createElement('div');
       root.id = ROOT_ID;
@@ -194,23 +152,15 @@
       toast.className = 'xvs-toast';
       root.appendChild(toast);
 
-      const counter = document.createElement('div');
-      counter.className = 'xvs-counter';
-      root.appendChild(counter);
-
       document.documentElement.appendChild(root);
-
       state.status = status;
       state.toast = toast;
-      state.counter = counter;
     } else {
       state.status = root.querySelector('.xvs-status');
       state.toast = root.querySelector('.xvs-toast');
-      state.counter = root.querySelector('.xvs-counter');
     }
 
     state.root = root;
-    updateCounter();
     return root;
   }
 
@@ -221,44 +171,28 @@
     state.status.style.display = visible ? 'flex' : 'none';
   }
 
-  function showToast(message, ms = 1300) {
+  function showToast(message, ms = 1400) {
     ensureRoot();
     if (state.toastTimer) clearTimeout(state.toastTimer);
-
     state.toast.textContent = message;
     state.toast.classList.add('xvs-toast-visible');
-
     state.toastTimer = setTimeout(() => {
       state.toast?.classList.remove('xvs-toast-visible');
       state.toastTimer = null;
     }, ms);
   }
 
-  function updateCounter() {
-    if (!state.counter) return;
-
-    const loaded = state.catalog.length;
-    const current = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
-    const ahead = state.currentIndex >= 0 ? Math.max(0, loaded - state.currentIndex - 1) : loaded;
-    const activity = state.prefetching ? ' · fetching' : '';
-
-    state.counter.textContent = `${current} / ${loaded} loaded · ${ahead} ahead${activity}`;
-  }
-
   function removeRoot() {
     if (state.toastTimer) clearTimeout(state.toastTimer);
     state.toastTimer = null;
-
     state.root?.remove();
     state.root = null;
     state.status = null;
     state.toast = null;
-    state.counter = null;
   }
 
   function getTweetKey(tweet) {
     if (!tweet) return null;
-
     const links = Array.from(tweet.querySelectorAll('a[href*="/status/"]'));
     const link = links.find((item) => /\/status\/\d+/.test(item.getAttribute('href') || ''));
     return link?.getAttribute('href') || null;
@@ -296,96 +230,20 @@
       if (!tweet || !player || !key || seen.has(key)) continue;
 
       seen.add(key);
-
       const rect = tweet.getBoundingClientRect();
-      const absoluteY = window.scrollY + rect.top;
-
-      candidates.push({
-        tweet,
-        player,
-        video,
-        key,
-        rect,
-        absoluteY
-      });
+      candidates.push({ tweet, player, video, key, rect });
     }
 
-    return candidates.sort((a, b) => a.absoluteY - b.absoluteY);
-  }
-
-  function insertCatalogKey(key, beforeKey = null, afterKey = null) {
-    if (!key || state.catalogSet.has(key)) return false;
-
-    if (afterKey && state.catalogSet.has(afterKey)) {
-      const index = state.catalog.indexOf(afterKey);
-      state.catalog.splice(index + 1, 0, key);
-    } else if (beforeKey && state.catalogSet.has(beforeKey)) {
-      const index = state.catalog.indexOf(beforeKey);
-      state.catalog.splice(Math.max(0, index), 0, key);
-    } else {
-      state.catalog.push(key);
-    }
-
-    state.catalogSet.add(key);
-    return true;
-  }
-
-  function registerCandidates(candidates) {
-    if (!candidates.length) return 0;
-
-    let added = 0;
-
-    for (const candidate of candidates) {
-      state.positions.set(candidate.key, candidate.absoluteY);
-    }
-
-    for (let i = 0; i < candidates.length; i += 1) {
-      const candidate = candidates[i];
-      if (state.catalogSet.has(candidate.key)) continue;
-
-      let afterKey = null;
-      let beforeKey = null;
-
-      for (let p = i - 1; p >= 0; p -= 1) {
-        if (state.catalogSet.has(candidates[p].key)) {
-          afterKey = candidates[p].key;
-          break;
-        }
-      }
-
-      if (!afterKey) {
-        for (let n = i + 1; n < candidates.length; n += 1) {
-          if (state.catalogSet.has(candidates[n].key)) {
-            beforeKey = candidates[n].key;
-            break;
-          }
-        }
-      }
-
-      if (insertCatalogKey(candidate.key, beforeKey, afterKey)) added += 1;
-    }
-
-    if (state.currentKey && state.catalogSet.has(state.currentKey)) {
-      state.currentIndex = state.catalog.indexOf(state.currentKey);
-    }
-
-    updateCounter();
-    return added;
-  }
-
-  function scanFeed() {
-    const candidates = collectCandidates();
-    registerCandidates(candidates);
-    return candidates;
+    return candidates.sort((a, b) => a.rect.top - b.rect.top);
   }
 
   function findCandidateByKey(key) {
     if (!key) return null;
-    return scanFeed().find((item) => item.key === key) || null;
+    return collectCandidates().find((item) => item.key === key) || null;
   }
 
   function pickNearestCandidate() {
-    const candidates = scanFeed();
+    const candidates = collectCandidates();
     if (!candidates.length) return null;
 
     const center = window.innerHeight / 2;
@@ -406,46 +264,35 @@
     state.endedHandler = null;
   }
 
-  function releaseCurrentPlayer({ clearKey = false } = {}) {
+  function restoreCurrentPlayer({ clearKey = false } = {}) {
     stopEndedListener();
 
     const portal = state.portal;
     const player = state.currentPlayer;
 
-    if (player) player.classList.remove(ACTIVE_PLAYER_CLASS);
+    if (player) {
+      player.classList.remove(ACTIVE_PLAYER_CLASS);
+    }
 
     if (portal && player) {
       const { marker, parent, nextSibling } = portal;
-      let restored = false;
 
       if (marker?.isConnected && marker.parentNode) {
         marker.parentNode.insertBefore(player, marker);
         marker.remove();
-        restored = true;
       } else if (parent?.isConnected) {
         const validSibling = nextSibling?.parentNode === parent ? nextSibling : null;
         parent.insertBefore(player, validSibling);
-        restored = true;
-      }
-
-      if (!restored && player.isConnected) {
-        player.remove();
       }
 
       portal.placeholder?.remove();
-      if (marker?.isConnected) marker.remove();
     }
 
     state.portal = null;
     state.currentVideo = null;
     state.currentPlayer = null;
 
-    if (clearKey) {
-      state.currentKey = null;
-      state.currentIndex = -1;
-    }
-
-    updateCounter();
+    if (clearKey) state.currentKey = null;
   }
 
   function portalPlayer(candidate) {
@@ -458,7 +305,6 @@
     const nextSibling = player.nextSibling;
     const marker = document.createComment('x-video-slideshow-player-anchor');
     const rect = player.getBoundingClientRect();
-
     const placeholder = document.createElement('div');
     placeholder.className = 'xvs-firefox-placeholder';
     placeholder.style.width = `${Math.max(1, rect.width)}px`;
@@ -469,28 +315,25 @@
     parent.insertBefore(placeholder, player);
 
     ensureRoot();
-
     player.classList.add(ACTIVE_PLAYER_CLASS);
     state.root.appendChild(player);
 
     state.portal = { parent, nextSibling, marker, placeholder };
     state.currentPlayer = player;
     state.currentVideo = video;
-
     return true;
   }
 
-  async function promoteCandidate(candidate, { index = null } = {}) {
+  async function promoteCandidate(candidate, { record = true } = {}) {
     if (!state.active || !candidate?.key) return false;
 
-    releaseCurrentPlayer({ clearKey: false });
+    restoreCurrentPlayer({ clearKey: false });
 
     const key = candidate.key;
     const sourceTweet = candidate.tweet;
-
     if (sourceTweet?.isConnected) {
       sourceTweet.scrollIntoView({ block: 'center', behavior: 'auto' });
-      await sleep(70);
+      await sleep(80);
     }
 
     if (!state.active) return false;
@@ -498,24 +341,22 @@
     const fresh = findCandidateByKey(key) || candidate;
     if (!fresh?.video?.isConnected || !fresh?.player?.isConnected) return false;
 
-    if (!state.catalogSet.has(key)) {
-      insertCatalogKey(key);
-    }
-
     state.currentKey = key;
-    state.currentIndex = Number.isInteger(index) ? index : state.catalog.indexOf(key);
 
     if (!portalPlayer(fresh)) return false;
 
+    if (record && state.history[state.historyIndex] !== key) {
+      state.history = state.history.slice(0, state.historyIndex + 1);
+      state.history.push(key);
+      state.historyIndex = state.history.length - 1;
+    }
+
     state.endedHandler = () => {
-      if (state.active && !state.navigating) {
-        void navigate(1, 'ended');
-      }
+      if (state.active && !state.navigating) void move(1);
     };
     state.currentVideo.addEventListener('ended', state.endedHandler, { once: true });
 
     setStatus('', false);
-    updateCounter();
 
     try {
       await state.currentVideo.play();
@@ -526,184 +367,117 @@
     return true;
   }
 
-  async function locateCatalogKey(key, direction, token) {
-    if (!key) return null;
+  function candidateRelativeToKey(key, direction) {
+    const candidates = collectCandidates();
+    if (!candidates.length) return null;
 
-    let candidate = findCandidateByKey(key);
-    if (candidate) return candidate;
+    const current = candidates.find((item) => item.key === key);
+    const currentTop = current?.rect.top ?? window.innerHeight / 2;
 
-    const knownY = state.positions.get(key);
-    if (Number.isFinite(knownY)) {
-      window.scrollTo({
-        top: Math.max(0, knownY - window.innerHeight * 0.42),
-        behavior: 'auto'
-      });
-      await sleep(SEARCH_DELAY_MS);
-
-      if (!state.active || token !== state.token) return null;
-
-      candidate = findCandidateByKey(key);
-      if (candidate) return candidate;
+    if (direction > 0) {
+      return candidates.find((item) =>
+        item.key !== key &&
+        item.rect.top > currentTop + 4 &&
+        !state.history.includes(item.key)
+      ) || null;
     }
 
+    return [...candidates].reverse().find((item) =>
+      item.key !== key && item.rect.top < currentTop - 4
+    ) || null;
+  }
+
+  async function locateHistoryKey(key, direction, token) {
     for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
+      const found = findCandidateByKey(key);
+      if (found) return found;
+
       window.scrollBy({
         top: direction * window.innerHeight * SCROLL_STEP,
         behavior: 'auto'
       });
-
       await sleep(SEARCH_DELAY_MS);
-      candidate = findCandidateByKey(key);
-      if (candidate) return candidate;
     }
 
-    return null;
+    return findCandidateByKey(key);
   }
 
-  function aheadCount() {
-    if (state.currentIndex < 0) return state.catalog.length;
-    return Math.max(0, state.catalog.length - state.currentIndex - 1);
-  }
+  async function discoverFromKey(sourceKey, direction, token) {
+    for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
+      const candidate = candidateRelativeToKey(sourceKey, direction);
+      if (candidate) return candidate;
 
-  async function fetchAheadUntil(minAhead, token, maxScrolls = SEARCH_ATTEMPTS) {
-    let previousLoaded = state.catalog.length;
-    let stagnant = 0;
-
-    for (
-      let i = 0;
-      i < maxScrolls &&
-      state.active &&
-      token === state.token &&
-      aheadCount() < minAhead;
-      i += 1
-    ) {
-      state.prefetching = true;
-      updateCounter();
-
+      setStatus(direction > 0 ? 'Finding the next X video…' : 'Finding the previous X video…', true);
       window.scrollBy({
-        top: window.innerHeight * PREFETCH_SCROLL_STEP,
+        top: direction * window.innerHeight * SCROLL_STEP,
         behavior: 'auto'
       });
-
-      await sleep(PREFETCH_SCROLL_DELAY_MS);
-      scanFeed();
-
-      if (state.catalog.length === previousLoaded) {
-        stagnant += 1;
-      } else {
-        stagnant = 0;
-        previousLoaded = state.catalog.length;
-      }
-
-      if (stagnant >= 5) break;
+      await sleep(SEARCH_DELAY_MS);
     }
 
-    state.prefetching = false;
-    updateCounter();
+    return candidateRelativeToKey(sourceKey, direction);
   }
 
-  async function prefetchLoop(generation) {
-    while (state.active && generation === state.prefetchGeneration) {
-      if (state.navigating) {
-        await sleep(120);
-        continue;
-      }
-
-      scanFeed();
-
-      if (aheadCount() < PREFETCH_AHEAD_TARGET) {
-        const token = state.token;
-        await fetchAheadUntil(PREFETCH_AHEAD_TARGET, token, 3);
-      } else {
-        state.prefetching = false;
-        updateCounter();
-        await sleep(PREFETCH_IDLE_MS);
-      }
-    }
-
-    state.prefetching = false;
-    updateCounter();
-  }
-
-  function startPrefetch() {
-    state.prefetchGeneration += 1;
-    const generation = state.prefetchGeneration;
-    void prefetchLoop(generation);
-  }
-
-  function stopPrefetch() {
-    state.prefetchGeneration += 1;
-    state.prefetching = false;
-    updateCounter();
-  }
-
-  async function recoverCurrent(sourceKey, sourceIndex, token) {
-    if (!sourceKey || !state.active || token !== state.token) return false;
-
-    const candidate = await locateCatalogKey(sourceKey, 0, token);
+  async function recoverCurrent(sourceKey) {
+    if (!sourceKey || !state.active) return false;
+    const candidate = findCandidateByKey(sourceKey);
     if (!candidate) return false;
-
-    return promoteCandidate(candidate, { index: sourceIndex });
+    return promoteCandidate(candidate, { record: false });
   }
 
-  async function navigate(direction, source = 'input') {
+  async function move(direction) {
     if (!state.active || state.navigating) return;
 
     state.navigating = true;
     const token = ++state.token;
     const sourceKey = state.currentKey;
-    const sourceIndex = state.currentIndex;
 
     try {
-      releaseCurrentPlayer({ clearKey: false });
-      await sleep(35);
+      restoreCurrentPlayer({ clearKey: false });
+      await sleep(40);
 
       if (!state.active || token !== state.token) return;
 
-      if (direction > 0 && sourceIndex >= state.catalog.length - 1) {
-        setStatus('Loading more X videos…', true);
-        await fetchAheadUntil(1, token, SEARCH_ATTEMPTS);
+      let candidate = null;
+      let targetIndex = state.historyIndex;
+      let shouldRecord = false;
+
+      if (direction < 0 && state.historyIndex > 0) {
+        targetIndex = state.historyIndex - 1;
+        candidate = await locateHistoryKey(state.history[targetIndex], -1, token);
+      } else if (direction > 0 && state.historyIndex < state.history.length - 1) {
+        targetIndex = state.historyIndex + 1;
+        candidate = await locateHistoryKey(state.history[targetIndex], 1, token);
+      } else {
+        candidate = await discoverFromKey(sourceKey, direction, token);
+        shouldRecord = direction > 0;
       }
-
-      const targetIndex = sourceIndex + direction;
-
-      if (targetIndex < 0) {
-        await recoverCurrent(sourceKey, sourceIndex, token);
-        showToast('No previous loaded video.');
-        return;
-      }
-
-      if (targetIndex >= state.catalog.length) {
-        await recoverCurrent(sourceKey, sourceIndex, token);
-        showToast('No more videos loaded yet.');
-        return;
-      }
-
-      const targetKey = state.catalog[targetIndex];
-      setStatus(direction > 0 ? 'Opening next video…' : 'Opening previous video…', true);
-
-      const candidate = await locateCatalogKey(targetKey, direction, token);
 
       if (!candidate || token !== state.token || !state.active) {
-        await recoverCurrent(sourceKey, sourceIndex, token);
-        showToast('That video is no longer in X’s loaded timeline.');
+        await recoverCurrent(sourceKey);
+        showToast(direction > 0 ? 'No more videos found.' : 'No previous video found.');
         return;
       }
 
-      const promoted = await promoteCandidate(candidate, { index: targetIndex });
+      if (direction < 0 && state.historyIndex <= 0 && !state.history.includes(candidate.key)) {
+        state.history.unshift(candidate.key);
+        targetIndex = 0;
+      }
 
+      if (!shouldRecord && state.history.includes(candidate.key)) {
+        targetIndex = state.history.indexOf(candidate.key);
+      }
+
+      const promoted = await promoteCandidate(candidate, { record: shouldRecord });
       if (!promoted) {
-        await recoverCurrent(sourceKey, sourceIndex, token);
-        showToast('X replaced that video while navigating.');
+        await recoverCurrent(sourceKey);
+        showToast('That X video disappeared while navigating.');
         return;
       }
 
-      if (source === 'wheel') {
-        showToast(direction > 0 ? 'Next video' : 'Previous video', 650);
-      }
+      if (!shouldRecord) state.historyIndex = targetIndex;
     } finally {
       state.navigating = false;
-      updateCounter();
     }
   }
 
@@ -720,27 +494,17 @@
 
     const key = event.key.toLowerCase();
 
-    if (
-      event.key === 'ArrowRight' ||
-      event.key === 'ArrowDown' ||
-      key === 'j' ||
-      event.key === 'PageDown'
-    ) {
+    if (event.key === 'ArrowRight' || key === 'j') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      void navigate(1, 'key');
+      void move(1);
       return;
     }
 
-    if (
-      event.key === 'ArrowLeft' ||
-      event.key === 'ArrowUp' ||
-      key === 'k' ||
-      event.key === 'PageUp'
-    ) {
+    if (event.key === 'ArrowLeft' || key === 'k') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      void navigate(-1, 'key');
+      void move(-1);
       return;
     }
 
@@ -751,62 +515,16 @@
     }
   }
 
-  function normalizeWheelDelta(event) {
-    let delta = event.deltaY;
-
-    if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 18;
-    if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= window.innerHeight;
-
-    return delta;
-  }
-
-  function onWheel(event) {
-    if (!state.active) return;
-
-    event.preventDefault();
-    event.stopImmediatePropagation();
-
-    const now = performance.now();
-    if (now < state.wheelCooldownUntil || state.navigating) return;
-
-    state.wheelAccumulator += normalizeWheelDelta(event);
-
-    if (Math.abs(state.wheelAccumulator) < WHEEL_THRESHOLD) return;
-
-    const direction = state.wheelAccumulator > 0 ? 1 : -1;
-    state.wheelAccumulator = 0;
-    state.wheelCooldownUntil = now + WHEEL_COOLDOWN_MS;
-
-    void navigate(direction, 'wheel');
-  }
-
   async function findInitialCandidate(token) {
     let candidate = pickNearestCandidate();
     if (candidate) return candidate;
 
-    let previousLoaded = state.catalog.length;
-    let stagnant = 0;
-
     for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
-      setStatus(`Looking for an X video… ${state.catalog.length} loaded`, true);
-
-      window.scrollBy({
-        top: window.innerHeight * SCROLL_STEP,
-        behavior: 'auto'
-      });
-
+      setStatus('Looking for an X video…', true);
+      window.scrollBy({ top: window.innerHeight * SCROLL_STEP, behavior: 'auto' });
       await sleep(SEARCH_DELAY_MS);
       candidate = pickNearestCandidate();
-
       if (candidate) return candidate;
-
-      if (state.catalog.length === previousLoaded) stagnant += 1;
-      else {
-        previousLoaded = state.catalog.length;
-        stagnant = 0;
-      }
-
-      if (stagnant >= 7) break;
     }
 
     return null;
@@ -818,45 +536,29 @@
     state.active = true;
     state.navigating = false;
     state.token += 1;
-
+    state.history = [];
+    state.historyIndex = -1;
     state.currentKey = null;
-    state.currentIndex = -1;
-    state.catalog = [];
-    state.catalogSet = new Set();
-    state.positions = new Map();
-
-    state.wheelAccumulator = 0;
-    state.wheelCooldownUntil = 0;
 
     ensureRoot();
     setStatus('Starting X Video Slideshow…', true);
-
     document.addEventListener('keydown', onKeyDown, true);
-    document.addEventListener('wheel', onWheel, { capture: true, passive: false });
 
     const token = state.token;
     const candidate = await findInitialCandidate(token);
 
     if (!candidate || token !== state.token || !state.active) {
       if (state.active) {
-        setStatus('No X video found. Open a feed, profile, search, or Media tab containing videos, then try again.', true);
+        setStatus('No X video found. Open a feed, profile, search, or Media tab containing a video, then try again.', true);
       }
       return true;
     }
 
-    if (!state.catalogSet.has(candidate.key)) {
-      insertCatalogKey(candidate.key);
-    }
-
-    const initialIndex = state.catalog.indexOf(candidate.key);
-    const promoted = await promoteCandidate(candidate, { index: initialIndex });
-
+    const promoted = await promoteCandidate(candidate);
     if (!promoted && state.active) {
-      setStatus('Found a video, but X replaced its player before it could be opened. Try again.', true);
-      return true;
+      setStatus('Found a video, but X replaced its player before it could be opened. Try clicking the extension again.', true);
     }
 
-    startPrefetch();
     return true;
   }
 
@@ -866,25 +568,15 @@
     state.active = false;
     state.navigating = false;
     state.token += 1;
-
-    stopPrefetch();
-    releaseCurrentPlayer({ clearKey: true });
-
+    restoreCurrentPlayer({ clearKey: true });
     document.removeEventListener('keydown', onKeyDown, true);
-    document.removeEventListener('wheel', onWheel, true);
-
     removeRoot();
     return false;
   }
 
   browser.runtime.onMessage.addListener((message) => {
     if (message?.type === 'XVS_PING') {
-      return Promise.resolve({
-        loaded: true,
-        active: state.active,
-        videosLoaded: state.catalog.length,
-        current: state.currentIndex + 1
-      });
+      return Promise.resolve({ loaded: true, active: state.active });
     }
 
     if (message?.type !== 'XVS_TOGGLE') return undefined;
