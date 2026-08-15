@@ -1,591 +1,246 @@
 (() => {
   "use strict";
+  if (window.__xvsStandaloneWrapper) return;
+  window.__xvsStandaloneWrapper = true;
 
-  const TWEET_SELECTOR = 'article[data-testid="tweet"]';
-  const PLAYER_SELECTOR = '[data-testid="videoPlayer"]';
-  const ROOT_ID = 'xvs-firefox-root';
-  const STYLE_ID = 'xvs-firefox-style';
-  const ACTIVE_PLAYER_CLASS = 'xvs-firefox-portal-player';
-  const SEARCH_ATTEMPTS = 20;
-  const SEARCH_DELAY_MS = 300;
-  const SCROLL_STEP = 0.86;
-
+  const TWEET = 'article[data-testid="tweet"]';
+  const ROOT = "xvs-standalone-root";
+  const PREFETCH_TARGET = 8;
   const state = {
-    active: false,
-    navigating: false,
-    token: 0,
-    currentKey: null,
-    currentVideo: null,
-    currentPlayer: null,
-    endedHandler: null,
-    portal: null,
-    history: [],
-    historyIndex: -1,
-    root: null,
-    status: null,
-    toast: null,
-    toastTimer: null
+    active: false, navigating: false, token: 0,
+    root: null, host: null, status: null, badge: null, toast: null, gate: null,
+    current: null, index: -1, catalog: [], seen: new Set(), pos: new Map(),
+    muted: null, volume: 1, rate: 1, userPaused: false, trustedAt: 0, lastTime: 0,
+    loader: null, loaderState: "idle", noGrowth: 0, toastTimer: null,
+    wheel: 0, wheelUntil: 0, startY: 0
   };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const css = (el, styles) => Object.assign(el.style, styles);
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  function makeRoot() {
+    let root = document.getElementById(ROOT);
+    if (root) return root;
+    root = document.createElement("div");
+    root.id = ROOT;
+    css(root, {position:"fixed",inset:"0",width:"100vw",height:"100vh",zIndex:"2147483646",overflow:"hidden",background:"#000",color:"#fff",fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif'});
 
-  function ensureStyle() {
-    if (document.getElementById(STYLE_ID)) return;
+    const host = document.createElement("div");
+    css(host, {position:"absolute",inset:"0",display:"flex",alignItems:"center",justifyContent:"center",background:"#000"});
+    root.appendChild(host);
 
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = `
-      #${ROOT_ID} {
-        position: fixed !important;
-        inset: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        z-index: 2147483646 !important;
-        overflow: hidden !important;
-        background: #000 !important;
-        color: #fff !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-        pointer-events: auto !important;
-        contain: layout paint style !important;
-      }
+    const status = document.createElement("div");
+    css(status, {position:"absolute",inset:"0",display:"none",alignItems:"center",justifyContent:"center",padding:"32px",boxSizing:"border-box",background:"#000",zIndex:"4",fontWeight:"700",textAlign:"center",pointerEvents:"none"});
+    root.appendChild(status);
 
-      #${ROOT_ID} .xvs-status {
-        position: absolute !important;
-        inset: 0 !important;
-        z-index: 1 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-sizing: border-box !important;
-        padding: 32px !important;
-        background: #000 !important;
-        color: #fff !important;
-        font-size: 16px !important;
-        font-weight: 600 !important;
-        line-height: 1.45 !important;
-        text-align: center !important;
-        pointer-events: none !important;
-      }
+    const toast = document.createElement("div");
+    css(toast, {position:"absolute",top:"18px",left:"50%",transform:"translateX(-50%)",zIndex:"2147483647",padding:"9px 13px",borderRadius:"999px",background:"rgba(32,35,39,.9)",fontSize:"13px",fontWeight:"650",opacity:"0",transition:"opacity 120ms",pointerEvents:"none"});
+    root.appendChild(toast);
 
-      #${ROOT_ID} .xvs-toast {
-        position: absolute !important;
-        top: 20px !important;
-        left: 50% !important;
-        z-index: 2147483647 !important;
-        transform: translateX(-50%) !important;
-        max-width: min(680px, calc(100vw - 40px)) !important;
-        box-sizing: border-box !important;
-        padding: 10px 14px !important;
-        border-radius: 999px !important;
-        background: rgba(32, 35, 39, 0.92) !important;
-        color: #fff !important;
-        font-size: 14px !important;
-        font-weight: 600 !important;
-        line-height: 1.3 !important;
-        text-align: center !important;
-        pointer-events: none !important;
-        opacity: 0 !important;
-        transition: opacity 120ms linear !important;
-      }
+    const badge = document.createElement("div");
+    css(badge, {position:"absolute",top:"18px",right:"18px",zIndex:"2147483647",padding:"8px 11px",borderRadius:"999px",background:"rgba(32,35,39,.86)",fontSize:"13px",fontWeight:"700",pointerEvents:"none"});
+    root.appendChild(badge);
 
-      #${ROOT_ID} .xvs-toast.xvs-toast-visible {
-        opacity: 1 !important;
-      }
+    const gate = document.createElement("button");
+    gate.type = "button";
+    gate.textContent = "Start slideshow with sound";
+    css(gate, {position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",zIndex:"2147483647",display:"none",padding:"13px 18px",border:"1px solid rgba(255,255,255,.2)",borderRadius:"999px",background:"#1d9bf0",color:"#fff",fontSize:"15px",fontWeight:"750",cursor:"pointer"});
+    gate.addEventListener("click", async (e) => {
+      if (!e.isTrusted || !state.current?.video) return;
+      e.preventDefault(); e.stopPropagation(); state.trustedAt = performance.now(); state.userPaused = false;
+      if (!(await playCurrent())) gate.textContent = "Firefox blocked playback. Use the video play control.";
+    }, true);
+    root.appendChild(gate);
 
-      #${ROOT_ID} > .${ACTIVE_PLAYER_CLASS} {
-        position: absolute !important;
-        inset: 0 !important;
-        z-index: 2 !important;
-        display: block !important;
-        width: 100% !important;
-        height: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        min-width: 0 !important;
-        min-height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        transform: none !important;
-        background: #000 !important;
-        overflow: hidden !important;
-        pointer-events: auto !important;
-      }
-
-      #${ROOT_ID} > .${ACTIVE_PLAYER_CLASS} video {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        margin: 0 !important;
-        object-fit: contain !important;
-        background: #000 !important;
-        transform: none !important;
-      }
-
-      .xvs-firefox-placeholder {
-        display: block !important;
-        box-sizing: border-box !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-    `;
-    document.documentElement.appendChild(style);
-  }
-
-  function ensureRoot() {
-    ensureStyle();
-    let root = document.getElementById(ROOT_ID);
-
-    if (!root) {
-      root = document.createElement('div');
-      root.id = ROOT_ID;
-
-      const status = document.createElement('div');
-      status.className = 'xvs-status';
-      root.appendChild(status);
-
-      const toast = document.createElement('div');
-      toast.className = 'xvs-toast';
-      root.appendChild(toast);
-
-      document.documentElement.appendChild(root);
-      state.status = status;
-      state.toast = toast;
-    } else {
-      state.status = root.querySelector('.xvs-status');
-      state.toast = root.querySelector('.xvs-toast');
-    }
-
-    state.root = root;
+    document.documentElement.appendChild(root);
+    Object.assign(state, {root, host, status, toast, badge, gate});
+    updateBadge();
     return root;
   }
 
-  function setStatus(message, visible = true) {
-    ensureRoot();
-    state.root.style.display = 'block';
-    state.status.textContent = message || '';
-    state.status.style.display = visible ? 'flex' : 'none';
+  function setStatus(text, show = true) { makeRoot(); state.status.textContent = text || ""; state.status.style.display = show ? "flex" : "none"; }
+  function gate(show, text = "Start slideshow with sound") { if (!state.gate) return; state.gate.textContent = text; state.gate.style.display = show ? "block" : "none"; }
+  function toast(text, ms = 1400) { makeRoot(); clearTimeout(state.toastTimer); state.toast.textContent = text; state.toast.style.opacity = "1"; state.toastTimer = setTimeout(() => { if (state.toast) state.toast.style.opacity = "0"; }, ms); }
+  function updateBadge() {
+    if (!state.badge) return;
+    const cur = state.index >= 0 ? state.index + 1 : 0;
+    const ahead = state.index >= 0 ? Math.max(0, state.catalog.length - cur) : state.catalog.length;
+    const suffix = state.loaderState === "fetching" ? " · fetching" : state.loaderState === "waiting" ? " · waiting" : "";
+    state.badge.textContent = `${cur}/${state.catalog.length} loaded · ${ahead} ahead${suffix}`;
   }
 
-  function showToast(message, ms = 1400) {
-    ensureRoot();
-    if (state.toastTimer) clearTimeout(state.toastTimer);
-    state.toast.textContent = message;
-    state.toast.classList.add('xvs-toast-visible');
-    state.toastTimer = setTimeout(() => {
-      state.toast?.classList.remove('xvs-toast-visible');
-      state.toastTimer = null;
-    }, ms);
+  function keyFor(tweet) {
+    return Array.from(tweet?.querySelectorAll('a[href*="/status/"]') || []).find(a => /\/status\/\d+/.test(a.getAttribute("href") || ""))?.getAttribute("href") || null;
   }
-
-  function removeRoot() {
-    if (state.toastTimer) clearTimeout(state.toastTimer);
-    state.toastTimer = null;
-    state.root?.remove();
-    state.root = null;
-    state.status = null;
-    state.toast = null;
+  function candidate(tweet) {
+    const key = keyFor(tweet), video = tweet?.querySelector("video");
+    if (!key || !(video instanceof HTMLVideoElement)) return null;
+    const rect = tweet.getBoundingClientRect();
+    return {key, video, tweet, rect, y: window.scrollY + rect.top};
   }
-
-  function getTweetKey(tweet) {
-    if (!tweet) return null;
-    const links = Array.from(tweet.querySelectorAll('a[href*="/status/"]'));
-    const link = links.find((item) => /\/status\/\d+/.test(item.getAttribute('href') || ''));
-    return link?.getAttribute('href') || null;
-  }
-
-  function getTweetForVideo(video) {
-    return video?.closest(TWEET_SELECTOR) || null;
-  }
-
-  function getPlayerForVideo(video) {
-    return video?.closest(PLAYER_SELECTOR) || video?.parentElement || null;
-  }
-
-  function isUsableVideo(video) {
-    if (!(video instanceof HTMLVideoElement) || !video.isConnected) return false;
-    if (video.closest(`#${ROOT_ID}`)) return false;
-
-    const tweet = getTweetForVideo(video);
-    if (!tweet) return false;
-
-    const rect = video.getBoundingClientRect();
-    return rect.width >= 80 && rect.height >= 45;
-  }
-
-  function collectCandidates() {
-    const seen = new Set();
-    const candidates = [];
-
-    for (const video of document.querySelectorAll('video')) {
-      if (!isUsableVideo(video)) continue;
-
-      const tweet = getTweetForVideo(video);
-      const player = getPlayerForVideo(video);
-      const key = getTweetKey(tweet);
-      if (!tweet || !player || !key || seen.has(key)) continue;
-
-      seen.add(key);
-      const rect = tweet.getBoundingClientRect();
-      candidates.push({ tweet, player, video, key, rect });
+  function rendered() {
+    const out = [], keys = new Set();
+    for (const tweet of document.querySelectorAll(TWEET)) {
+      const c = candidate(tweet); if (!c || keys.has(c.key)) continue; keys.add(c.key); out.push(c);
     }
-
-    return candidates.sort((a, b) => a.rect.top - b.rect.top);
+    return out.sort((a,b) => a.rect.top - b.rect.top);
+  }
+  function ingest(list, prepend = false) {
+    const fresh = [];
+    for (const c of list) { state.pos.set(c.key, c.y); if (!state.seen.has(c.key)) { state.seen.add(c.key); fresh.push(c.key); } }
+    if (!fresh.length) { updateBadge(); return 0; }
+    if (prepend) { state.catalog = [...fresh, ...state.catalog]; if (state.index >= 0) state.index += fresh.length; }
+    else state.catalog.push(...fresh);
+    updateBadge(); return fresh.length;
+  }
+  const scan = (prepend = false) => ingest(rendered(), prepend);
+  function find(key) { for (const t of document.querySelectorAll(TWEET)) if (keyFor(t) === key) return candidate(t); return null; }
+  function nearest() {
+    const list = rendered(); ingest(list); if (!list.length) return null;
+    const center = innerHeight / 2, visible = list.filter(c => c.rect.bottom > 0 && c.rect.top < innerHeight), pool = visible.length ? visible : list;
+    return pool.reduce((a,b) => Math.abs((b.rect.top+b.rect.height/2)-center) < Math.abs((a.rect.top+a.rect.height/2)-center) ? b : a);
   }
 
-  function findCandidateByKey(key) {
-    if (!key) return null;
-    return collectCandidates().find((item) => item.key === key) || null;
+  function snap(v) {
+    return {parent:v.parentNode,next:v.nextSibling,style:v.getAttribute("style"),className:v.className,controls:v.controls,autoplay:v.autoplay,muted:v.muted,volume:v.volume,rate:v.playbackRate,loop:v.loop,preload:v.preload,inline:v.playsInline,tab:v.tabIndex};
+  }
+  function restoreAttrs(v,o) {
+    if (o.style === null) v.removeAttribute("style"); else v.setAttribute("style", o.style);
+    v.className=o.className; v.controls=o.controls; v.autoplay=o.autoplay; v.muted=o.muted; v.volume=o.volume; v.playbackRate=o.rate; v.loop=o.loop; v.preload=o.preload; v.playsInline=o.inline; v.tabIndex=o.tab;
+  }
+  function offCurrent() {
+    const c = state.current; if (!c) return;
+    for (const [name,fn,capture] of c.listeners) c.video.removeEventListener(name,fn,capture);
+  }
+  function releaseCurrent(restore = true) {
+    const c = state.current; if (!c) return;
+    offCurrent();
+    state.muted = c.video.muted; state.volume = c.video.volume; state.rate = c.video.playbackRate || 1;
+    if (restore) restoreAttrs(c.video,c.original);
+    if (restore && c.anchor?.isConnected && c.anchor.parentNode) { c.anchor.parentNode.insertBefore(c.video,c.anchor); c.anchor.remove(); }
+    else if (restore && c.original.parent?.isConnected) { const sib = c.original.next?.parentNode===c.original.parent ? c.original.next : null; c.original.parent.insertBefore(c.video,sib); c.anchor?.remove(); }
+    else { c.anchor?.remove(); if (c.video.isConnected) c.video.remove(); }
+    state.current = null; state.lastTime = 0; state.userPaused = false;
   }
 
-  function pickNearestCandidate() {
-    const candidates = collectCandidates();
-    if (!candidates.length) return null;
+  async function playCurrent() {
+    const v = state.current?.video; if (!v || !state.active) return false;
+    try { await v.play(); gate(false); return true; }
+    catch (e) { console.debug("XVS wrapper play blocked",e); if (!v.muted && v.volume>0) gate(true); return false; }
+  }
 
-    const center = window.innerHeight / 2;
-    const visible = candidates.filter(({ rect }) => rect.bottom > 0 && rect.top < window.innerHeight);
-    const pool = visible.length ? visible : candidates;
-
-    return pool.reduce((best, item) => {
-      const itemCenter = item.rect.top + item.rect.height / 2;
-      const bestCenter = best.rect.top + best.rect.height / 2;
-      return Math.abs(itemCenter - center) < Math.abs(bestCenter - center) ? item : best;
+  function bind(v) {
+    const listeners = [];
+    const on = (name,fn,capture=false) => { v.addEventListener(name,fn,capture); listeners.push([name,fn,capture]); };
+    on("ended",()=>{ if(state.active&&!state.navigating) void move(1,"ended"); });
+    on("play",()=>{ state.userPaused=false; gate(false); });
+    on("playing",()=>{ state.userPaused=false; gate(false); });
+    on("pointerdown",e=>{ if(e.isTrusted) state.trustedAt=performance.now(); },true);
+    on("pause",()=>{
+      if(!state.active||state.navigating||v!==state.current?.video||v.ended) return;
+      if(performance.now()-state.trustedAt<700){state.userPaused=true;return;}
+      if(state.userPaused) return;
+      setTimeout(()=>{ if(state.active&&!state.navigating&&v===state.current?.video&&v.paused&&!v.ended&&!state.userPaused) void playCurrent(); },70);
     });
+    on("timeupdate",()=>{ if(v===state.current?.video&&Number.isFinite(v.currentTime)) state.lastTime=v.currentTime; });
+    on("volumechange",()=>{ if(v===state.current?.video){state.muted=v.muted;state.volume=v.volume;} });
+    on("ratechange",()=>{ if(v===state.current?.video) state.rate=v.playbackRate||1; });
+    const recover=()=>{ if(state.active&&!state.navigating&&v===state.current?.video) scheduleRecovery(); };
+    on("error",recover); on("emptied",recover);
+    return listeners;
   }
 
-  function stopEndedListener() {
-    if (state.currentVideo && state.endedHandler) {
-      state.currentVideo.removeEventListener('ended', state.endedHandler);
-    }
-    state.endedHandler = null;
+  async function promote(c,index,resume=null) {
+    if(!state.active||!c?.video?.isConnected) return false;
+    const v=c.video,o=snap(v),anchor=document.createComment("xvs-anchor");
+    o.parent?.insertBefore(anchor,v);
+    releaseCurrent(true); makeRoot();
+    if(state.muted===null){state.muted=o.muted;state.volume=o.volume;state.rate=o.rate||1;}
+    state.index=index; state.current={key:c.key,video:v,anchor,original:o,listeners:[]}; state.userPaused=false;
+    v.controls=true; v.autoplay=true; v.playsInline=true; v.preload="auto"; v.loop=false; v.muted=!!state.muted; v.volume=Math.max(0,Math.min(1,Number(state.volume)||0)); v.playbackRate=Number(state.rate)||1;
+    css(v,{position:"absolute",inset:"0",width:"100vw",height:"100vh",maxWidth:"none",maxHeight:"none",margin:"0",objectFit:"contain",background:"#000",zIndex:"2"});
+    state.host.appendChild(v); state.current.listeners=bind(v); setStatus("",false); updateBadge();
+    if(Number.isFinite(resume)&&resume>0){const seek=()=>{try{v.currentTime=Math.min(resume,Number.isFinite(v.duration)?Math.max(0,v.duration-.25):resume);}catch{}}; if(v.readyState>=1)seek();else v.addEventListener("loadedmetadata",seek,{once:true});}
+    const ok=await playCurrent(); if(!ok&&v.muted) toast("Muted autoplay is blocked by Firefox settings.",2000);
+    scheduleLoader(500); return true;
   }
 
-  function restoreCurrentPlayer({ clearKey = false } = {}) {
-    stopEndedListener();
-
-    const portal = state.portal;
-    const player = state.currentPlayer;
-
-    if (player) {
-      player.classList.remove(ACTIVE_PLAYER_CLASS);
+  async function locate(key,token) {
+    let c=find(key); if(c) return c;
+    const y=state.pos.get(key);
+    if(Number.isFinite(y)){scrollTo({top:Math.max(0,y-innerHeight*.3),behavior:"auto"});await sleep(260);if(!state.active||token!==state.token)return null;scan();c=find(key);if(c)return c;}
+    for(let i=0;i<12&&state.active&&token===state.token;i++){
+      const yy=state.pos.get(key),dir=Number.isFinite(yy)&&scrollY>yy?-1:1;
+      scrollBy({top:dir*innerHeight*.72,behavior:"auto"}); await sleep(260); if(!state.active||token!==state.token)return null; scan(dir<0); c=find(key); if(c)return c;
     }
-
-    if (portal && player) {
-      const { marker, parent, nextSibling } = portal;
-
-      if (marker?.isConnected && marker.parentNode) {
-        marker.parentNode.insertBefore(player, marker);
-        marker.remove();
-      } else if (parent?.isConnected) {
-        const validSibling = nextSibling?.parentNode === parent ? nextSibling : null;
-        parent.insertBefore(player, validSibling);
-      }
-
-      portal.placeholder?.remove();
-    }
-
-    state.portal = null;
-    state.currentVideo = null;
-    state.currentPlayer = null;
-
-    if (clearKey) state.currentKey = null;
-  }
-
-  function portalPlayer(candidate) {
-    const { player, video } = candidate;
-    if (!player?.isConnected || !video?.isConnected) return false;
-
-    const parent = player.parentNode;
-    if (!(parent instanceof Node)) return false;
-
-    const nextSibling = player.nextSibling;
-    const marker = document.createComment('x-video-slideshow-player-anchor');
-    const rect = player.getBoundingClientRect();
-    const placeholder = document.createElement('div');
-    placeholder.className = 'xvs-firefox-placeholder';
-    placeholder.style.width = `${Math.max(1, rect.width)}px`;
-    placeholder.style.height = `${Math.max(1, rect.height)}px`;
-    placeholder.style.maxWidth = '100%';
-
-    parent.insertBefore(marker, player);
-    parent.insertBefore(placeholder, player);
-
-    ensureRoot();
-    player.classList.add(ACTIVE_PLAYER_CLASS);
-    state.root.appendChild(player);
-
-    state.portal = { parent, nextSibling, marker, placeholder };
-    state.currentPlayer = player;
-    state.currentVideo = video;
-    return true;
-  }
-
-  async function promoteCandidate(candidate, { record = true } = {}) {
-    if (!state.active || !candidate?.key) return false;
-
-    restoreCurrentPlayer({ clearKey: false });
-
-    const key = candidate.key;
-    const sourceTweet = candidate.tweet;
-    if (sourceTweet?.isConnected) {
-      sourceTweet.scrollIntoView({ block: 'center', behavior: 'auto' });
-      await sleep(80);
-    }
-
-    if (!state.active) return false;
-
-    const fresh = findCandidateByKey(key) || candidate;
-    if (!fresh?.video?.isConnected || !fresh?.player?.isConnected) return false;
-
-    state.currentKey = key;
-
-    if (!portalPlayer(fresh)) return false;
-
-    if (record && state.history[state.historyIndex] !== key) {
-      state.history = state.history.slice(0, state.historyIndex + 1);
-      state.history.push(key);
-      state.historyIndex = state.history.length - 1;
-    }
-
-    state.endedHandler = () => {
-      if (state.active && !state.navigating) void move(1);
-    };
-    state.currentVideo.addEventListener('ended', state.endedHandler, { once: true });
-
-    setStatus('', false);
-
-    try {
-      await state.currentVideo.play();
-    } catch {
-      showToast('Autoplay was blocked. Use X’s play button once.');
-    }
-
-    return true;
-  }
-
-  function candidateRelativeToKey(key, direction) {
-    const candidates = collectCandidates();
-    if (!candidates.length) return null;
-
-    const current = candidates.find((item) => item.key === key);
-    const currentTop = current?.rect.top ?? window.innerHeight / 2;
-
-    if (direction > 0) {
-      return candidates.find((item) =>
-        item.key !== key &&
-        item.rect.top > currentTop + 4 &&
-        !state.history.includes(item.key)
-      ) || null;
-    }
-
-    return [...candidates].reverse().find((item) =>
-      item.key !== key && item.rect.top < currentTop - 4
-    ) || null;
-  }
-
-  async function locateHistoryKey(key, direction, token) {
-    for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
-      const found = findCandidateByKey(key);
-      if (found) return found;
-
-      window.scrollBy({
-        top: direction * window.innerHeight * SCROLL_STEP,
-        behavior: 'auto'
-      });
-      await sleep(SEARCH_DELAY_MS);
-    }
-
-    return findCandidateByKey(key);
-  }
-
-  async function discoverFromKey(sourceKey, direction, token) {
-    for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
-      const candidate = candidateRelativeToKey(sourceKey, direction);
-      if (candidate) return candidate;
-
-      setStatus(direction > 0 ? 'Finding the next X video…' : 'Finding the previous X video…', true);
-      window.scrollBy({
-        top: direction * window.innerHeight * SCROLL_STEP,
-        behavior: 'auto'
-      });
-      await sleep(SEARCH_DELAY_MS);
-    }
-
-    return candidateRelativeToKey(sourceKey, direction);
-  }
-
-  async function recoverCurrent(sourceKey) {
-    if (!sourceKey || !state.active) return false;
-    const candidate = findCandidateByKey(sourceKey);
-    if (!candidate) return false;
-    return promoteCandidate(candidate, { record: false });
-  }
-
-  async function move(direction) {
-    if (!state.active || state.navigating) return;
-
-    state.navigating = true;
-    const token = ++state.token;
-    const sourceKey = state.currentKey;
-
-    try {
-      restoreCurrentPlayer({ clearKey: false });
-      await sleep(40);
-
-      if (!state.active || token !== state.token) return;
-
-      let candidate = null;
-      let targetIndex = state.historyIndex;
-      let shouldRecord = false;
-
-      if (direction < 0 && state.historyIndex > 0) {
-        targetIndex = state.historyIndex - 1;
-        candidate = await locateHistoryKey(state.history[targetIndex], -1, token);
-      } else if (direction > 0 && state.historyIndex < state.history.length - 1) {
-        targetIndex = state.historyIndex + 1;
-        candidate = await locateHistoryKey(state.history[targetIndex], 1, token);
-      } else {
-        candidate = await discoverFromKey(sourceKey, direction, token);
-        shouldRecord = direction > 0;
-      }
-
-      if (!candidate || token !== state.token || !state.active) {
-        await recoverCurrent(sourceKey);
-        showToast(direction > 0 ? 'No more videos found.' : 'No previous video found.');
-        return;
-      }
-
-      if (direction < 0 && state.historyIndex <= 0 && !state.history.includes(candidate.key)) {
-        state.history.unshift(candidate.key);
-        targetIndex = 0;
-      }
-
-      if (!shouldRecord && state.history.includes(candidate.key)) {
-        targetIndex = state.history.indexOf(candidate.key);
-      }
-
-      const promoted = await promoteCandidate(candidate, { record: shouldRecord });
-      if (!promoted) {
-        await recoverCurrent(sourceKey);
-        showToast('That X video disappeared while navigating.');
-        return;
-      }
-
-      if (!shouldRecord) state.historyIndex = targetIndex;
-    } finally {
-      state.navigating = false;
-    }
-  }
-
-  function isTypingTarget(target) {
-    return target instanceof HTMLElement && (
-      target.matches('input, textarea, select') ||
-      target.isContentEditable ||
-      Boolean(target.closest('[contenteditable="true"]'))
-    );
-  }
-
-  function onKeyDown(event) {
-    if (!state.active || event.defaultPrevented || isTypingTarget(event.target)) return;
-
-    const key = event.key.toLowerCase();
-
-    if (event.key === 'ArrowRight' || key === 'j') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      void move(1);
-      return;
-    }
-
-    if (event.key === 'ArrowLeft' || key === 'k') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      void move(-1);
-      return;
-    }
-
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      deactivate();
-    }
-  }
-
-  async function findInitialCandidate(token) {
-    let candidate = pickNearestCandidate();
-    if (candidate) return candidate;
-
-    for (let i = 0; i < SEARCH_ATTEMPTS && state.active && token === state.token; i += 1) {
-      setStatus('Looking for an X video…', true);
-      window.scrollBy({ top: window.innerHeight * SCROLL_STEP, behavior: 'auto' });
-      await sleep(SEARCH_DELAY_MS);
-      candidate = pickNearestCandidate();
-      if (candidate) return candidate;
-    }
-
     return null;
   }
 
-  async function activate() {
-    if (state.active) return true;
-
-    state.active = true;
-    state.navigating = false;
-    state.token += 1;
-    state.history = [];
-    state.historyIndex = -1;
-    state.currentKey = null;
-
-    ensureRoot();
-    setStatus('Starting X Video Slideshow…', true);
-    document.addEventListener('keydown', onKeyDown, true);
-
-    const token = state.token;
-    const candidate = await findInitialCandidate(token);
-
-    if (!candidate || token !== state.token || !state.active) {
-      if (state.active) {
-        setStatus('No X video found. Open a feed, profile, search, or Media tab containing a video, then try again.', true);
-      }
-      return true;
+  async function loadNext(token,max=12){
+    for(let i=0;i<max&&state.active&&token===state.token;i++){
+      if(state.index+1<state.catalog.length)return true; state.loaderState="fetching";updateBadge();scrollBy({top:innerHeight*.72,behavior:"auto"});await sleep(380);if(!state.active||token!==state.token)return false;scan();
     }
-
-    const promoted = await promoteCandidate(candidate);
-    if (!promoted && state.active) {
-      setStatus('Found a video, but X replaced its player before it could be opened. Try clicking the extension again.', true);
+    return state.index+1<state.catalog.length;
+  }
+  async function loadPrevious(token){
+    for(let i=0;i<8&&state.active&&token===state.token;i++){
+      if(state.index>0)return true;scrollBy({top:-innerHeight*.72,behavior:"auto"});await sleep(260);if(!state.active||token!==state.token)return false;scan(true);
     }
-
-    return true;
+    return state.index>0;
   }
 
-  function deactivate() {
-    if (!state.active) return false;
-
-    state.active = false;
-    state.navigating = false;
-    state.token += 1;
-    restoreCurrentPlayer({ clearKey: true });
-    document.removeEventListener('keydown', onKeyDown, true);
-    removeRoot();
-    return false;
+  async function move(dir,reason="input"){
+    if(!state.active||state.navigating)return; state.navigating=true; cancelLoader(); const token=++state.token;
+    try{
+      if(dir>0&&state.index+1>=state.catalog.length&&!await loadNext(token)){if(reason!=="ended")toast("No more videos loaded yet.");return;}
+      if(dir<0&&state.index<=0&&!await loadPrevious(token)){toast("No previous video found.");return;}
+      const idx=state.index+dir,key=state.catalog[idx]; if(!key)return;
+      const c=await locate(key,token); if(!c||token!==state.token||!state.active){toast("Could not load that video from X.",1800);return;}
+      if(!await promote(c,idx))toast("X replaced that video before it could open.",1800);
+    } finally { state.navigating=false; state.loaderState="idle";updateBadge();scheduleLoader(500); }
   }
 
-  browser.runtime.onMessage.addListener((message) => {
-    if (message?.type === 'XVS_PING') {
-      return Promise.resolve({ loaded: true, active: state.active });
-    }
+  function scheduleRecovery(){
+    const key=state.current?.key,idx=state.index,t=state.lastTime;if(!key||state.navigating)return;
+    toast("Reloading current video…",1000);
+    setTimeout(async()=>{if(!state.active||state.navigating||state.current?.key!==key)return;state.navigating=true;cancelLoader();const token=++state.token;try{const c=await locate(key,token);if(c&&token===state.token)await promote(c,idx,t);}finally{state.navigating=false;scheduleLoader(650);}},120);
+  }
 
-    if (message?.type !== 'XVS_TOGGLE') return undefined;
+  function cancelLoader(){if(state.loader)clearTimeout(state.loader);state.loader=null;}
+  function scheduleLoader(ms=380){cancelLoader();if(!state.active)return;state.loader=setTimeout(()=>{state.loader=null;void loaderTick();},ms);}
+  async function loaderTick(){
+    if(!state.active)return;if(state.navigating){scheduleLoader(600);return;}
+    const ahead=Math.max(0,state.catalog.length-state.index-1);if(ahead>=PREFETCH_TARGET){state.loaderState="buffered";state.noGrowth=0;updateBadge();scheduleLoader(1000);return;}
+    const before=state.catalog.length;state.loaderState="fetching";updateBadge();scrollBy({top:innerHeight*.72,behavior:"auto"});await sleep(380);
+    if(!state.active||state.navigating){scheduleLoader(600);return;}scan();state.noGrowth=state.catalog.length>before?0:state.noGrowth+1;
+    if(state.noGrowth>=6){state.loaderState="waiting";updateBadge();scheduleLoader(2400);return;}scheduleLoader(380);
+  }
 
-    if (state.active) {
-      return Promise.resolve({ active: deactivate() });
-    }
+  function wheel(e){
+    if(!state.active||!state.root)return;if(e.target instanceof HTMLElement&&e.target.closest("button"))return;e.preventDefault();e.stopImmediatePropagation();const now=performance.now();if(now<state.wheelUntil)return;state.wheel+=e.deltaY;if(Math.abs(state.wheel)<72)return;const d=state.wheel>0?1:-1;state.wheel=0;state.wheelUntil=now+420;void move(d,"wheel");
+  }
+  function typing(t){return t instanceof HTMLElement&&(t.matches("input,textarea,select")||t.isContentEditable||!!t.closest('[contenteditable="true"]'));}
+  function keys(e){
+    if(!state.active||e.defaultPrevented||typing(e.target))return;const k=e.key.toLowerCase();
+    if(e.key==="ArrowDown"||e.key==="ArrowRight"||e.key==="PageDown"||k==="j"){e.preventDefault();e.stopImmediatePropagation();void move(1,"key");}
+    else if(e.key==="ArrowUp"||e.key==="ArrowLeft"||e.key==="PageUp"||k==="k"){e.preventDefault();e.stopImmediatePropagation();void move(-1,"key");}
+    else if(e.key==="Escape"){e.preventDefault();e.stopImmediatePropagation();deactivate();}
+  }
 
-    void activate();
-    return Promise.resolve({ active: true });
+  async function initial(token){
+    let c=nearest();if(c)return c;for(let i=0;i<16&&state.active&&token===state.token;i++){setStatus("Looking for an X video…");scrollBy({top:innerHeight*.8,behavior:"auto"});await sleep(300);if(!state.active||token!==state.token)return null;c=nearest();if(c)return c;}return null;
+  }
+  async function activate(){
+    if(state.active)return true;state.active=true;state.navigating=false;state.token++;state.startY=scrollY;state.index=-1;state.catalog=[];state.seen=new Set();state.pos=new Map();state.loaderState="idle";state.noGrowth=0;state.muted=null;state.volume=1;state.rate=1;state.wheel=0;state.wheelUntil=0;
+    makeRoot();setStatus("Starting standalone X video wrapper…");addEventListener("wheel",wheel,{capture:true,passive:false});document.addEventListener("keydown",keys,true);
+    const token=state.token,c=await initial(token);if(!c||token!==state.token||!state.active){if(state.active)setStatus("No X video found on this page.");return true;}
+    let idx=state.catalog.indexOf(c.key);if(idx<0){state.catalog.push(c.key);state.seen.add(c.key);idx=state.catalog.length-1;}await promote(c,idx);return true;
+  }
+  function deactivate(){
+    if(!state.active)return false;const y=state.pos.get(state.current?.key)??state.startY;state.active=false;state.navigating=false;state.token++;cancelLoader();removeEventListener("wheel",wheel,true);document.removeEventListener("keydown",keys,true);releaseCurrent(true);state.root?.remove();state.root=state.host=state.status=state.badge=state.toast=state.gate=null;if(Number.isFinite(y))scrollTo({top:Math.max(0,y-innerHeight*.25),behavior:"auto"});return false;
+  }
+
+  browser.runtime.onMessage.addListener((m)=>{
+    if(m?.type==="XVS_PING")return Promise.resolve({loaded:true,active:state.active,architecture:"standalone-wrapper"});
+    if(m?.type!=="XVS_TOGGLE")return undefined;if(state.active)return Promise.resolve({active:deactivate()});void activate();return Promise.resolve({active:true});
   });
 })();
