@@ -6,18 +6,32 @@
 
   const ROOT_ID = "xvs-firefox-root";
   const BADGE_ID = "xvs-firefox-loaded-count";
+  const SOUND_GATE_ID = "xvs-firefox-sound-gate";
   const WHEEL_THRESHOLD = 70;
   const WHEEL_COOLDOWN_MS = 380;
+  const EARLY_PAUSE_WINDOW_MS = 2200;
 
   const discovered = new Set();
   let wheelDelta = 0;
   let wheelLockedUntil = 0;
   let scanTimer = null;
+  let overlayTimer = null;
+  let watchedVideo = null;
+  let watchedAt = 0;
+  let blockedAttempts = 0;
 
   function getStatusKey(tweet) {
     const links = Array.from(tweet.querySelectorAll('a[href*="/status/"]'));
     const link = links.find((item) => /\/status\/\d+/.test(item.getAttribute("href") || ""));
     return link?.getAttribute("href") || null;
+  }
+
+  function getRoot() {
+    return document.getElementById(ROOT_ID);
+  }
+
+  function getOverlayVideo() {
+    return getRoot()?.querySelector("video") || null;
   }
 
   function scanRenderedVideos() {
@@ -28,6 +42,7 @@
     }
 
     updateBadge();
+    watchOverlayVideo();
   }
 
   function scheduleScan() {
@@ -38,8 +53,17 @@
     }, 120);
   }
 
+  function scheduleOverlayCheck(delay = 180) {
+    if (overlayTimer) clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(() => {
+      overlayTimer = null;
+      watchOverlayVideo();
+      checkForBlockedAudiblePlayback();
+    }, delay);
+  }
+
   function updateBadge() {
-    const root = document.getElementById(ROOT_ID);
+    const root = getRoot();
     if (!root) return;
 
     let badge = document.getElementById(BADGE_ID);
@@ -65,8 +89,138 @@
     badge.textContent = `${discovered.size} loaded`;
   }
 
+  function ensureSoundGate() {
+    const root = getRoot();
+    if (!root) return null;
+
+    let gate = document.getElementById(SOUND_GATE_ID);
+    if (gate) return gate;
+
+    gate = document.createElement("button");
+    gate.id = SOUND_GATE_ID;
+    gate.type = "button";
+    gate.textContent = "Enable sound autoplay";
+    Object.assign(gate.style, {
+      position: "absolute",
+      top: "62px",
+      left: "50%",
+      zIndex: "2147483647",
+      transform: "translateX(-50%)",
+      padding: "10px 15px",
+      border: "1px solid rgba(255,255,255,.18)",
+      borderRadius: "999px",
+      background: "rgba(29,155,240,.96)",
+      color: "#fff",
+      font: "700 14px/1.2 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+      cursor: "pointer",
+      boxShadow: "0 4px 18px rgba(0,0,0,.35)"
+    });
+
+    gate.addEventListener("pointerdown", onSoundGatePointerDown, true);
+    gate.addEventListener("keydown", onSoundGateKeyDown, true);
+    root.appendChild(gate);
+    return gate;
+  }
+
+  function showSoundGate(message = "Enable sound autoplay") {
+    const gate = ensureSoundGate();
+    if (!gate) return;
+    gate.textContent = message;
+    gate.style.display = "block";
+  }
+
+  function hideSoundGate() {
+    const gate = document.getElementById(SOUND_GATE_ID);
+    if (gate) gate.style.display = "none";
+  }
+
+  function attemptAudiblePlay() {
+    const video = getOverlayVideo();
+    if (!video) return;
+
+    video.muted = false;
+    const result = video.play();
+
+    Promise.resolve(result).then(() => {
+      blockedAttempts = 0;
+      hideSoundGate();
+    }).catch((error) => {
+      blockedAttempts += 1;
+      console.debug("X Video Slideshow: audible playback remained blocked", error);
+      showSoundGate(
+        blockedAttempts > 1
+          ? "Firefox is blocking sound autoplay. Allow Audio and Video for x.com"
+          : "Enable sound autoplay"
+      );
+    });
+  }
+
+  function onSoundGatePointerDown(event) {
+    if (!event.isTrusted) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    attemptAudiblePlay();
+  }
+
+  function onSoundGateKeyDown(event) {
+    if (!event.isTrusted || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    attemptAudiblePlay();
+  }
+
+  function checkForBlockedAudiblePlayback() {
+    const video = getOverlayVideo();
+    if (!video || video !== watchedVideo) return;
+
+    if (video.muted || video.volume === 0 || !video.paused) {
+      hideSoundGate();
+      return;
+    }
+
+    if (performance.now() - watchedAt <= EARLY_PAUSE_WINDOW_MS) {
+      showSoundGate();
+    }
+  }
+
+  function watchOverlayVideo() {
+    const video = getOverlayVideo();
+    if (video === watchedVideo) return;
+
+    if (watchedVideo) {
+      watchedVideo.removeEventListener("playing", onOverlayPlaying);
+      watchedVideo.removeEventListener("pause", onOverlayPause);
+      watchedVideo.removeEventListener("volumechange", onOverlayVolumeChange);
+    }
+
+    watchedVideo = video;
+    watchedAt = performance.now();
+    hideSoundGate();
+
+    if (!video) return;
+
+    video.addEventListener("playing", onOverlayPlaying);
+    video.addEventListener("pause", onOverlayPause);
+    video.addEventListener("volumechange", onOverlayVolumeChange);
+    scheduleOverlayCheck(500);
+  }
+
+  function onOverlayPlaying() {
+    hideSoundGate();
+  }
+
+  function onOverlayPause() {
+    scheduleOverlayCheck(40);
+  }
+
+  function onOverlayVolumeChange() {
+    if (watchedVideo?.muted || watchedVideo?.volume === 0) {
+      hideSoundGate();
+    }
+  }
+
   function slideshowActive() {
-    return Boolean(document.getElementById(ROOT_ID));
+    return Boolean(getRoot());
   }
 
   function sendNavigationKey(direction) {
@@ -76,6 +230,7 @@
       bubbles: true,
       cancelable: true
     }));
+    scheduleOverlayCheck(650);
   }
 
   function onWheel(event) {
