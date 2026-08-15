@@ -1,189 +1,247 @@
 (() => {
   "use strict";
-  if (globalThis.__XVS9) return;
 
-  const OVERLAY_ID = "twitter-video-slideshow-overlay";
+  if (globalThis.__xMediaSlideshow) return;
+
+  const TWEET = 'article[data-testid="tweet"]';
+  const MEDIA_IMAGE = 'img[src*="twimg.com/media/"]';
+  const STATUS_LINK = 'a[href*="/status/"]';
+  const OVERLAY_ID = 'x-media-slideshow';
+
   const state = {
-    overlay: null, host: null, player: null, items: [], index: 0, active: false,
-    manualPause: false, activeVideo: null, navId: 0, lastDir: 0,
-    muted: true, volume: .5, rate: 1,
-    observer: null, collectTimer: null,
-    seenVideoKeys: new Set(), seenImageKeys: new Set(),
-    seenVideoEls: new WeakSet(), seenImageEls: new WeakSet(), seenArticles: new WeakSet(),
-    includeImages: false, imageIntervalMs: 3000,
-    imageTimer: null, imageProgressTimer: null, imageStartedAt: 0, imageRunMs: 0, imageRemainingMs: 0,
-    wheelDelta: 0, wheelGestureLocked: false, wheelResetTimer: null,
-    socialTimer: null, toastTimer: null, controlsTimer: null
+    running: false,
+    includeImages: false,
+    imageDurationMs: 3000,
+    items: [],
+    index: 0,
+    revision: 0,
+    observer: null,
+    scanTimer: null,
+    startScrollY: 0,
+    activeVideo: null,
+    mediaMuted: true,
+    mediaVolume: 0.5,
+    mediaRate: 1,
+    userPaused: false,
+    imageClock: null,
+    wheelLockTimer: null,
+    wheelAccumulator: 0,
+    socialRefreshTimer: null,
+    controlsHideTimer: null,
   };
 
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const currentItem = () => state.items[state.index] || null;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  function sourceOf(video) {
-    return video.currentSrc || video.src || Array.from(video.querySelectorAll("source")).find(source => source.src)?.src || null;
-  }
-
-  function tweetKey(article, fallback) {
-    let key = article?.querySelector('a[href*="/status/"]')?.href?.split("?")[0] || article?.dataset?.xvsKey || fallback || null;
-    if (article?.dataset && key) article.dataset.xvsKey = key;
-    return key;
-  }
-
-  function normalizeImage(src) {
-    if (!src) return null;
+  function statusUrl(article) {
+    const link = article?.querySelector(STATUS_LINK);
+    if (!link) return null;
     try {
-      const url = new URL(src);
-      if (!url.hostname.endsWith("twimg.com") || !url.pathname.includes("/media/")) return null;
-      url.searchParams.set("name", "large");
-      return url.toString();
+      const url = new URL(link.href, location.href);
+      const match = url.pathname.match(/^\/[^/]+\/status\/\d+/);
+      return match ? `${url.origin}${match[0]}` : null;
     } catch {
       return null;
     }
   }
 
-  function imageKey(article, src) {
-    const status = article?.querySelector('a[href*="/status/"]')?.href?.split("?")[0] || "image";
-    let clean = src;
+  function normalizedImageUrl(raw) {
+    if (!raw) return null;
     try {
-      const url = new URL(src);
-      clean = `${url.origin}${url.pathname}`;
-    } catch {}
-    return `${status}::${clean}`;
+      const url = new URL(raw, location.href);
+      if (!url.hostname.endsWith('twimg.com') || !url.pathname.includes('/media/')) return null;
+      url.searchParams.set('name', 'large');
+      return url.href;
+    } catch {
+      return null;
+    }
   }
 
-  function updateCount() {
-    globalThis.__XVS9?.updateCounter?.();
+  function usableVideo(video) {
+    if (!(video instanceof HTMLVideoElement)) return false;
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return false;
+    return Boolean(video.currentSrc || video.src || video.querySelector('source[src]'));
   }
 
-  function collectMedia() {
-    let added = 0;
+  function imageCandidates(article) {
+    if (!state.includeImages) return [];
+    return Array.from(article.querySelectorAll(MEDIA_IMAGE))
+      .map((image, imageIndex) => ({
+        element: image,
+        url: normalizedImageUrl(image.currentSrc || image.src),
+        imageIndex,
+      }))
+      .filter((candidate) => candidate.url);
+  }
 
-    for (const article of document.querySelectorAll("article")) {
-      for (const media of article.querySelectorAll('video, img[src*="twimg.com/media/"]')) {
-        if (media.closest(`#${OVERLAY_ID}`)) continue;
+  function describeArticle(article, articleIndex) {
+    const postUrl = statusUrl(article);
+    if (!postUrl) return [];
 
-        if (media instanceof HTMLVideoElement) {
-          if (state.seenVideoEls.has(media) || state.seenArticles.has(article)) continue;
-          const src = sourceOf(media) || article.querySelector('source[src*="video.twimg.com"]')?.src || article.querySelector('a[href*="video.twimg.com"]')?.href || null;
-          if (!src && media.readyState < 2) continue;
-          if (!src) continue;
-          const duration = Number.isFinite(media.duration) && media.duration > 0 ? media.duration : null;
-          if (!duration) continue;
-          const key = tweetKey(article, src);
-          if (key && state.seenVideoKeys.has(key)) continue;
-          if (key) state.seenVideoKeys.add(key);
-          state.seenVideoEls.add(media);
-          state.seenArticles.add(article);
-          state.items.push({ type: "video", el: media, article, src, duration, key, placeholder: null, originalParent: null });
-          added += 1;
-          continue;
-        }
-
-        if (!state.includeImages || state.seenImageEls.has(media)) continue;
-        const src = normalizeImage(media.currentSrc || media.src);
-        if (!src) continue;
-        const key = imageKey(article, src);
-        if (state.seenImageKeys.has(key)) continue;
-        state.seenImageKeys.add(key);
-        state.seenImageEls.add(media);
-        state.items.push({ type: "image", el: media, article, src, duration: state.imageIntervalMs / 1000, key, placeholder: null, originalParent: null });
-        added += 1;
-      }
+    const output = [];
+    const video = article.querySelector('video');
+    if (usableVideo(video)) {
+      output.push({
+        id: `${postUrl}#video`,
+        kind: 'video',
+        postUrl,
+        article,
+        element: video,
+        order: articleIndex * 100,
+      });
     }
 
-    updateCount();
-    return added;
+    for (const image of imageCandidates(article)) {
+      output.push({
+        id: `${postUrl}#image-${image.imageIndex}:${image.url}`,
+        kind: 'image',
+        postUrl,
+        article,
+        element: image.element,
+        src: image.url,
+        order: articleIndex * 100 + image.imageIndex + 1,
+      });
+    }
+    return output;
   }
 
-  function startObserver() {
-    if (state.observer) return;
-    state.observer = new MutationObserver(() => {
-      clearTimeout(state.collectTimer);
-      state.collectTimer = setTimeout(() => {
-        if (state.active) collectMedia();
-        state.collectTimer = null;
-      }, 2500);
+  function scanVisibleFeed() {
+    const articles = Array.from(document.querySelectorAll(TWEET));
+    const found = [];
+    articles.forEach((article, index) => found.push(...describeArticle(article, index)));
+
+    const existing = new Map(state.items.map((item) => [item.id, item]));
+    for (const item of found) {
+      const previous = existing.get(item.id);
+      if (previous) Object.assign(previous, item);
+      else state.items.push(item);
+    }
+
+    state.items.sort((a, b) => {
+      const aArticle = a.article?.isConnected ? a.article : null;
+      const bArticle = b.article?.isConnected ? b.article : null;
+      if (aArticle && bArticle && aArticle !== bArticle) {
+        const relation = aArticle.compareDocumentPosition(bArticle);
+        if (relation & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (relation & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      }
+      return a.order - b.order;
     });
-    state.observer.observe(document.body, { childList: true, subtree: true });
+
+    api.emit('catalogchange');
+    return found.length;
   }
 
-  function stopObserver() {
-    clearTimeout(state.collectTimer);
-    state.collectTimer = null;
+  function findArticleByPost(postUrl) {
+    if (!postUrl) return null;
+    for (const article of document.querySelectorAll(TWEET)) {
+      if (statusUrl(article) === postUrl) return article;
+    }
+    return null;
+  }
+
+  function refreshItemReference(item) {
+    const article = findArticleByPost(item?.postUrl);
+    if (!article) return false;
+    item.article = article;
+    if (item.kind === 'video') {
+      const video = article.querySelector('video');
+      if (!usableVideo(video)) return false;
+      item.element = video;
+      return true;
+    }
+
+    const candidates = imageCandidates(article);
+    const match = candidates.find((candidate) => candidate.url === item.src);
+    if (!match) return false;
+    item.element = match.element;
+    return true;
+  }
+
+  function currentItem() {
+    return state.items[state.index] || null;
+  }
+
+  function scheduleScan() {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = setTimeout(() => {
+      state.scanTimer = null;
+      if (state.running) scanVisibleFeed();
+    }, 1800);
+  }
+
+  function observeFeed() {
+    if (state.observer) return;
+    state.observer = new MutationObserver(scheduleScan);
+    state.observer.observe(document.body, { subtree: true, childList: true });
+  }
+
+  function stopObserving() {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = null;
     state.observer?.disconnect();
     state.observer = null;
   }
 
-  function scrollNode(item) {
-    if (!item) return null;
-    if (item.el && document.contains(item.el)) return item.el;
-    if (item.placeholder && document.contains(item.placeholder)) return item.placeholder;
-    return null;
+  async function discoverForward(targetIndex, revision) {
+    const maxPasses = 5;
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      if (!state.running || revision !== state.revision) return false;
+      scanVisibleFeed();
+      if (targetIndex < state.items.length) return true;
+
+      const player = state.activeVideo?.video;
+      if (player && !player.paused && !player.ended && pass < 2) return false;
+
+      window.scrollBy({ top: Math.max(420, innerHeight * 0.82), behavior: 'smooth' });
+      await sleep(460 + pass * 120);
+    }
+    scanVisibleFeed();
+    return targetIndex < state.items.length;
   }
 
-  async function attemptLoadMore(tries = 0, navId) {
-    if (!state.active || (navId && navId !== state.navId)) return false;
-    const before = state.items.length;
-    const node = scrollNode(state.items.at(-1));
-    if (node) {
-      try { node.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
-      await sleep(200);
-    }
+  async function locateItem(item, direction, revision) {
+    if (!item) return false;
+    if (item.element?.isConnected) return true;
+    if (refreshItemReference(item)) return true;
 
-    if (state.player && !state.player.paused && !state.player.ended && tries < 2) return false;
-
-    for (let i = 0; i < 3; i += 1) {
-      if (!state.active || (navId && navId !== state.navId)) return false;
-      window.scrollBy({ top: innerHeight * .9, behavior: "smooth" });
-      await sleep(220 + i * 80);
-    }
-
-    await sleep(500 + tries * 150);
-    if (!state.active || (navId && navId !== state.navId)) return false;
-    collectMedia();
-    return state.items.length > before;
-  }
-
-  async function ensureIndex(index, navId) {
-    let tries = 0;
-    while (index >= state.items.length && tries < 5) {
-      const loaded = await attemptLoadMore(tries, navId);
-      tries += 1;
-      if (!loaded) {
-        await sleep(500);
-        if (!state.active || navId !== state.navId) return false;
-        collectMedia();
-      }
-    }
-    return index < state.items.length;
-  }
-
-  function refind(item) {
-    if (!item?.key || item.type !== "video") return false;
-    for (const article of document.querySelectorAll("article")) {
-      const key = article.querySelector('a[href*="/status/"]')?.href?.split("?")[0] || article.dataset?.xvsKey || null;
-      if (key !== item.key) continue;
-      const video = article.querySelector("video");
-      if (!video) continue;
-      item.el = video;
-      item.article = article;
-      state.seenVideoEls.add(video);
-      state.seenArticles.add(article);
-      return true;
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      if (!state.running || revision !== state.revision) return false;
+      window.scrollBy({ top: direction * Math.max(360, innerHeight * 0.65), behavior: 'smooth' });
+      await sleep(380);
+      scanVisibleFeed();
+      if (refreshItemReference(item)) return true;
     }
     return false;
   }
 
-  function resetSeen() {
-    state.seenVideoKeys.clear();
-    state.seenImageKeys.clear();
-    state.seenVideoEls = new WeakSet();
-    state.seenImageEls = new WeakSet();
-    state.seenArticles = new WeakSet();
+  const listeners = new Map();
+  function on(eventName, handler) {
+    if (!listeners.has(eventName)) listeners.set(eventName, new Set());
+    listeners.get(eventName).add(handler);
+    return () => listeners.get(eventName)?.delete(handler);
   }
 
-  globalThis.__XVS9 = {
-    OVERLAY_ID, state, sleep, currentItem, collectMedia, startObserver, stopObserver,
-    attemptLoadMore, ensureIndex, refind, resetSeen
+  function emit(eventName, payload) {
+    for (const handler of listeners.get(eventName) || []) {
+      try { handler(payload); } catch (error) { console.error('X Media Slideshow event handler failed', error); }
+    }
+  }
+
+  const api = {
+    OVERLAY_ID,
+    state,
+    sleep,
+    scanVisibleFeed,
+    currentItem,
+    findArticleByPost,
+    refreshItemReference,
+    observeFeed,
+    stopObserving,
+    discoverForward,
+    locateItem,
+    on,
+    emit,
   };
+
+  globalThis.__xMediaSlideshow = api;
 })();
