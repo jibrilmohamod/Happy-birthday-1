@@ -36,6 +36,17 @@
     return tweet?.querySelector("video") || null;
   }
 
+  async function waitForTweetVideo(key, fallbackTweet) {
+    for (let attempt = 0; attempt < 8 && state.active; attempt += 1) {
+      const tweet = findTweetByKey(key) || fallbackTweet;
+      const video = getTweetVideo(tweet);
+      if (video) return video;
+      await sleep(150);
+    }
+
+    return null;
+  }
+
   function isVideoTweet(tweet) {
     return Boolean(tweet?.querySelector(VIDEO_SELECTOR));
   }
@@ -106,8 +117,7 @@
       }
     }
 
-    const refreshedTweet = findTweetByKey(key) || tweet;
-    const video = getTweetVideo(refreshedTweet);
+    const video = await waitForTweetVideo(key, tweet);
     watchVideo(video);
 
     if (video) {
@@ -135,7 +145,7 @@
       });
 
       if (direction > 0) {
-        return candidates.find(({ key }) => !state.history.includes(key))?.tweet || candidates[0]?.tweet || null;
+        return candidates.find(({ key }) => !state.history.includes(key))?.tweet || null;
       }
 
       return candidates.at(-1)?.tweet || null;
@@ -212,7 +222,7 @@
       const key = getTweetKey(candidate);
       if (key && !state.history.includes(key)) {
         state.history.unshift(key);
-        state.historyIndex += 1;
+        state.historyIndex = 0;
       }
     }
 
