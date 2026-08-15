@@ -1,16 +1,24 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.7.0",
-  "description": "Firefox port of Twitter Video Slideshow v3's stable overlay playback model.",
-  "permissions": ["activeTab"],
-  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
-  "action": { "default_title": "Start X Video Slideshow" },
-  "background": { "scripts": ["background.js"] },
+  "version": "0.8.0",
+  "description": "Firefox port of Twitter Video Slideshow 3.0 with videos, images, social actions, and scroll navigation.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "X Video Slideshow"
+  },
   "content_scripts": [
     {
-      "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": ["core.js", "player.js", "controller.js"],
       "run_at": "document_idle"
     }
   ],
