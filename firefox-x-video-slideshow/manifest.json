@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "X Media Slideshow",
-  "version": "0.10.0",
-  "description": "Fullscreen mixed-media slideshow for X/Twitter with keyboard, gesture, and social controls.",
+  "version": "0.11.0",
+  "description": "Fullscreen mixed-media slideshow for X/Twitter with Picture-in-Picture, gesture navigation, and prominent social controls.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://x.com/*",
@@ -18,8 +18,8 @@
         "https://x.com/*",
         "https://twitter.com/*"
       ],
-      "css": ["overlay.css"],
-      "js": ["core.js", "player.js", "controller.js"],
+      "css": ["overlay.css", "enhancements.css"],
+      "js": ["core.js", "player.js", "controller.js", "enhancements.js"],
       "run_at": "document_idle"
     }
   ],
