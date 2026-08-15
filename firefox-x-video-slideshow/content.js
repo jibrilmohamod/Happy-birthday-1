@@ -240,6 +240,9 @@
     const o = document.createElement("div");
     o.id = OVERLAY_ID;
     o.innerHTML = overlayHtml();
+    const style = document.createElement("style");
+    style.textContent = `#${OVERLAY_ID} #xvs-host video { width:100% !important; height:100% !important; max-width:100% !important; max-height:100% !important; object-fit:contain !important; background:#000 !important; display:block !important; }`;
+    o.appendChild(style);
     Object.assign(o.style, { position:"fixed", inset:"0", zIndex:"999999", background:"rgba(0,0,0,.96)", color:"#fff" });
     const host = o.querySelector("#xvs-host");
     Object.assign(host.style, { position:"absolute", inset:"0 0 58px 0", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" });
@@ -304,8 +307,9 @@
 
     state.player = el;
     state.host.innerHTML = "";
+    el.style.width = "";
+    el.style.height = "";
     state.host.appendChild(el);
-    Object.assign(el.style, { width:"100%", height:"100%", maxWidth:"100%", maxHeight:"100%", objectFit:"contain", background:"#000", display:"block" });
     el.controls = false;
     el.playsInline = true;
     el.loop = false;
