@@ -177,9 +177,18 @@
 
   function restoreVideo() {
     if (!originalPlacement?.video) return;
-    const { video, parent, anchor } = originalPlacement;
+    const { video, parent, anchor, properties } = originalPlacement;
     detachVideoEvents(video);
     try { video.pause(); } catch {}
+    if (properties) {
+      video.controls = properties.controls;
+      video.playsInline = properties.playsInline;
+      video.loop = properties.loop;
+      video.muted = properties.muted;
+      video.volume = properties.volume;
+      video.playbackRate = properties.playbackRate;
+      video.autoplay = properties.autoplay;
+    }
     if (anchor?.isConnected && parent?.isConnected) parent.insertBefore(video, anchor);
     else if (parent?.isConnected) parent.appendChild(video);
     anchor?.remove();
@@ -224,7 +233,20 @@
 
     const anchor = document.createComment('x-media-slideshow-anchor');
     parent.insertBefore(anchor, video);
-    originalPlacement = { video, parent, anchor };
+    originalPlacement = {
+      video,
+      parent,
+      anchor,
+      properties: {
+        controls: video.controls,
+        playsInline: video.playsInline,
+        loop: video.loop,
+        muted: video.muted,
+        volume: video.volume,
+        playbackRate: video.playbackRate,
+        autoplay: video.autoplay,
+      },
+    };
     state.activeVideo = { video, item };
 
     stage.replaceChildren(video);
