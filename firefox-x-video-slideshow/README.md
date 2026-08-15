@@ -2,13 +2,15 @@
 
 Firefox WebExtension for browsing X/Twitter videos as a fullscreen slideshow while keeping X's own video player controls.
 
-## v0.4.2 sound autoplay fix
+## v0.4.2 sound autoplay handling
 
-Firefox treats script-started media with sound differently from muted media. A wheel event does not count as a user-activation event, so wheel-only navigation cannot reliably authorize audible autoplay by itself.
+Firefox applies autoplay restrictions to script-started media with audible audio. Muted media is treated differently. Mouse-wheel events also do not create Firefox user activation, so wheel-only navigation cannot reliably authorize audible autoplay by itself.
 
-The extension now detects the specific failure where a newly opened unmuted video starts and then pauses immediately. When that happens, a small **Enable sound autoplay** button appears in the fullscreen overlay.
+The extension detects the failure where a newly opened unmuted video begins and then immediately pauses. When that happens, a small **Enable sound autoplay** button appears in the fullscreen overlay.
 
-Clicking that button calls `video.play()` during a real trusted pointer event. That gives the X page the user activation Firefox expects for audible playback. If Firefox still blocks sound autoplay after repeated attempts, the button tells you to allow **Audio and Video** autoplay for `x.com` in Firefox's site permissions.
+Clicking that button starts the video during a real trusted pointer event. That is the browser-supported way to establish user activation for audible playback on the X page.
+
+If Firefox still blocks audible autoplay after repeated attempts, allow **Audio and Video** autoplay for `x.com` using Firefox's site permissions.
 
 The stable v0.3 player runtime remains unchanged.
 
