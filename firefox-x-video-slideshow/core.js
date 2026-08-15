@@ -189,9 +189,6 @@
       scanVisibleFeed();
       if (targetIndex < state.items.length) return true;
 
-      const player = state.activeVideo?.video;
-      if (player && !player.paused && !player.ended && pass < 2) return false;
-
       window.scrollBy({ top: Math.max(420, innerHeight * 0.82), behavior: 'smooth' });
       await sleep(460 + pass * 120);
     }
