@@ -2,38 +2,23 @@
 
 Firefox port of the supplied Chrome extension **Twitter Video Slideshow v3.0**.
 
-## v0.8.0
+## v0.9.0
 
-v0.8 expands the v0.7 stability port with the Chrome extension features that were still missing.
+v0.9 keeps the Chrome-derived playback lifecycle from v0.8, but improves queue ordering, controls, social actions, popup state, and trackpad behavior.
 
-### Popup and toggle
+### What changed
 
-Clicking the Firefox toolbar icon now opens a popup rather than immediately toggling playback.
+- **Mixed media stays in X feed order.** Videos and tweet images are collected article-by-article instead of appending all videos first and all images afterward.
+- **One wheel/trackpad gesture = one navigation.** Momentum no longer causes accidental multi-skip after a fixed cooldown.
+- **Polished overlay controls.** Proper icon buttons, auto-hiding control bar, large side navigation targets, a compact speed menu, media-type badge, and current/total counter.
+- **Better social actions.** Like, Repost, and Bookmark disable when the original X action is unavailable, repost confirmation is polled instead of guessed with a fixed delay, and actions show feedback toasts.
+- **Open post.** The overlay can open the current X post directly.
+- **Keyboard actions.** `L` Like, `R` Repost, `B` Bookmark, `O` open post, and `M` mute, in addition to the existing navigation/play keys.
+- **Improved popup.** Live Running/Ready state, current media position/type, a cleaner Start/Stop button, and options locked while a session is active so it is clear when they apply.
 
-The popup provides:
+### Playback stability retained
 
-- **Start Overlay Slideshow / Stop Slideshow**
-- **Include images** switch
-- image interval selector: 2, 3, 5, 8, or 10 seconds
-- current slideshow item count/status
-
-The image settings are stored with Firefox `storage.sync`.
-
-### Videos and images
-
-The slideshow queue can now contain both videos and tweet images.
-
-Images use the same overlay, previous/next navigation, progress bar, pause/resume behavior, and social controls. Image URLs are normalized to the large `twimg.com/media` variant. Images automatically advance after the configured interval.
-
-### Like, Repost, Bookmark
-
-The overlay now contains Like, Repost, and Bookmark controls.
-
-These locate the original tweet article and proxy the action to X's real `data-testid` controls. Repost also handles X's repost confirmation menu. Active liked/reposted/bookmarked state is refreshed from the underlying tweet.
-
-### Chrome-v3 playback model
-
-The stability behavior from v0.7 is retained:
+The timing/lifecycle decisions reverse-engineered from the supplied Chrome v3 CRX remain intact:
 
 - only fully usable videos enter the queue
 - mutation collection is debounced for 2.5 seconds
@@ -41,8 +26,12 @@ The stability behavior from v0.7 is retained:
 - the previous video is restored before the next is moved
 - stale async navigation is cancelled with an incrementing navigation ID
 - X is not aggressively background-scrolled while healthy playback is running
-- playback is retried briefly before a delayed stall check
-- no reload-current-video loop
+- playback gets short retry nudges plus a delayed stall check
+- there is no reload-current-video loop
+
+### Images
+
+Enable **Include images** in the popup and choose 2, 3, 5, 8, or 10 seconds per image. Images participate in the same queue, feed ordering, navigation, progress, pause/resume, and social controls as videos.
 
 ### Navigation
 
@@ -51,6 +40,11 @@ The stability behavior from v0.7 is retained:
 - Arrow Right / Arrow Down / Page Down: next
 - Arrow Left / Arrow Up / Page Up: previous
 - Space: play/pause
+- `M`: mute
+- `L`: Like
+- `R`: Repost
+- `B`: Bookmark
+- `O`: open current post
 - Escape: close
 
 ### Audio
@@ -64,12 +58,10 @@ Like the supplied Chrome v3 extension, playback starts muted for autoplay reliab
 3. Remove any older temporary copy of **X Video Slideshow**.
 4. Click **Load Temporary Add-on…**.
 5. Select `firefox-x-video-slideshow/manifest.json`.
-6. Reload the X tab so `core.js`, `player.js`, and `controller.js` load.
-7. Click the extension icon. The popup should appear.
-8. Optionally enable **Include images** and choose the interval.
-9. Click **Start Overlay Slideshow**.
+6. Reload the X tab so the content scripts and `overlay.css` load.
+7. Click the extension icon, choose media options, then **Start slideshow**.
 
-Confirm the extension version is **0.8.0** before testing.
+Confirm the extension version is **0.9.0** before testing.
 
 ## Privacy
 
