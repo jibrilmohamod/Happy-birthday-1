@@ -1,21 +1,104 @@
-const includeImagesEl=document.getElementById("includeImages");
-const imageIntervalEl=document.getElementById("imageInterval");
-const intervalRowEl=document.getElementById("intervalRow");
-const toggleEl=document.getElementById("toggle");
-const statusEl=document.getElementById("status");
-const stateEl=document.getElementById("state");
-const stateTextEl=document.getElementById("stateText");
-let active=false;
-let refreshTimer=null;
-function updateIntervalVisibility(){intervalRowEl.classList.toggle("visible",includeImagesEl.checked);}
-function setActiveState(value){active=Boolean(value);stateEl.classList.toggle("active",active);stateTextEl.textContent=active?"Running":"Ready";toggleEl.textContent=active?"Stop slideshow":"Start slideshow";toggleEl.classList.toggle("stop",active);includeImagesEl.disabled=active;imageIntervalEl.disabled=active;}
-async function saveOptions(){await browser.storage.sync.set({includeImages:includeImagesEl.checked,imageIntervalSeconds:Number(imageIntervalEl.value)||3});}
-async function loadOptions(){const options=await browser.storage.sync.get({includeImages:false,imageIntervalSeconds:3});includeImagesEl.checked=Boolean(options.includeImages);imageIntervalEl.value=String(options.imageIntervalSeconds||3);updateIntervalVisibility();}
-async function activeTab(){const [tab]=await browser.tabs.query({active:true,currentWindow:true});return tab;}
-function isX(url){return /^https:\/\/(?:www\.)?(?:x\.com|twitter\.com)\//i.test(url||"");}
-async function refreshStatus(){const tab=await activeTab();if(!tab?.id||!isX(tab.url)){setActiveState(false);stateTextEl.textContent="Unavailable";toggleEl.disabled=true;statusEl.textContent="Open an X/Twitter tab to use the slideshow.";return;}toggleEl.disabled=false;try{const response=await browser.tabs.sendMessage(tab.id,{type:"TWITTER_SLIDESHOW_STATUS"});setActiveState(response?.active);if(response?.active){const pos=Math.min((response.currentIndex||0)+1,response.itemCount||0);const type=response.currentType?` · ${response.currentType}`:"";statusEl.textContent=`${pos}/${response.itemCount||0}${type} · scroll or arrow keys to navigate.`;}else statusEl.textContent="Ready. Options apply when the slideshow starts.";}catch{setActiveState(false);statusEl.textContent="Reload this X tab once after installing or updating the extension.";}}
-includeImagesEl.addEventListener("change",async()=>{updateIntervalVisibility();await saveOptions();});
-imageIntervalEl.addEventListener("change",saveOptions);
-toggleEl.addEventListener("click",async()=>{const tab=await activeTab();if(!tab?.id)return;toggleEl.disabled=true;try{if(active){const response=await browser.tabs.sendMessage(tab.id,{type:"STOP_TWITTER_SLIDESHOW"});setActiveState(false);statusEl.textContent=response?.message||"Slideshow stopped.";}else{await saveOptions();statusEl.textContent="Collecting media…";const response=await browser.tabs.sendMessage(tab.id,{type:"START_TWITTER_SLIDESHOW",includeImages:includeImagesEl.checked,imageIntervalSeconds:Number(imageIntervalEl.value)||3});setActiveState(response?.active);statusEl.textContent=response?.message||(response?.active?"Slideshow started.":"Could not start slideshow.");}}catch{setActiveState(false);statusEl.textContent="Reload this X tab and try again.";}finally{toggleEl.disabled=false;setTimeout(refreshStatus,350);}});
-(async()=>{await loadOptions();await refreshStatus();refreshTimer=setInterval(refreshStatus,800);})();
-window.addEventListener("unload",()=>clearInterval(refreshTimer));
+"use strict";
+
+const ui = {
+  button: document.querySelector('#toggle'),
+  includeImages: document.querySelector('#includeImages'),
+  interval: document.querySelector('#imageInterval'),
+  intervalRow: document.querySelector('#intervalRow'),
+  status: document.querySelector('#status'),
+  session: document.querySelector('#session'),
+};
+
+let active = false;
+
+function showInterval() {
+  ui.intervalRow.hidden = !ui.includeImages.checked;
+}
+
+async function activeXTab() {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/^https:\/\/(?:www\.)?(?:x\.com|twitter\.com)\//i.test(tab.url || '')) return null;
+  return tab;
+}
+
+async function loadPreferences() {
+  const values = await browser.storage.sync.get({ includeImages: false, imageIntervalSeconds: 3 });
+  ui.includeImages.checked = Boolean(values.includeImages);
+  ui.interval.value = String(values.imageIntervalSeconds || 3);
+  showInterval();
+}
+
+async function savePreferences() {
+  await browser.storage.sync.set({
+    includeImages: ui.includeImages.checked,
+    imageIntervalSeconds: Number(ui.interval.value) || 3,
+  });
+}
+
+function render(status) {
+  active = Boolean(status?.active);
+  ui.button.textContent = active ? 'Stop slideshow' : 'Start slideshow';
+  ui.button.classList.toggle('danger', active);
+  ui.includeImages.disabled = active;
+  ui.interval.disabled = active;
+  ui.session.textContent = active
+    ? `${(status.currentIndex || 0) + 1}/${status.itemCount || 0}${status.currentKind ? ` · ${status.currentKind}` : ''}`
+    : 'Ready';
+}
+
+async function refresh() {
+  const tab = await activeXTab();
+  if (!tab) {
+    ui.button.disabled = true;
+    ui.status.textContent = 'Open X/Twitter in the active tab.';
+    ui.session.textContent = 'Unavailable';
+    return;
+  }
+
+  try {
+    const status = await browser.tabs.sendMessage(tab.id, { type: 'XMS_STATUS' });
+    ui.button.disabled = false;
+    ui.status.textContent = '';
+    render(status);
+  } catch {
+    ui.button.disabled = true;
+    ui.status.textContent = 'Reload this X tab after installing the extension.';
+    ui.session.textContent = 'Unavailable';
+  }
+}
+
+ui.includeImages.addEventListener('change', async () => { showInterval(); await savePreferences(); });
+ui.interval.addEventListener('change', savePreferences);
+ui.button.addEventListener('click', async () => {
+  const tab = await activeXTab();
+  if (!tab) return;
+  ui.button.disabled = true;
+  try {
+    if (active) {
+      const response = await browser.tabs.sendMessage(tab.id, { type: 'XMS_STOP' });
+      render(response);
+      ui.status.textContent = response.message || 'Stopped.';
+    } else {
+      await savePreferences();
+      const response = await browser.tabs.sendMessage(tab.id, {
+        type: 'XMS_START',
+        options: {
+          includeImages: ui.includeImages.checked,
+          imageIntervalSeconds: Number(ui.interval.value) || 3,
+        },
+      });
+      render(response);
+      ui.status.textContent = response.message || (response.ok ? 'Started.' : 'Could not start.');
+    }
+  } catch {
+    ui.status.textContent = 'Reload the X tab and try again.';
+  } finally {
+    ui.button.disabled = false;
+    await refresh();
+  }
+});
+
+(async () => {
+  await loadPreferences();
+  await refresh();
+})();
