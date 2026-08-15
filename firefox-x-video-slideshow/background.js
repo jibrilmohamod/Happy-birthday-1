@@ -27,29 +27,17 @@ async function setActionState(tabId, active, error = false) {
   });
 }
 
-async function injectInteractionLayer(tabId) {
-  await browser.scripting.executeScript({
-    target: { tabId },
-    files: ["interaction.js"]
-  });
-}
-
 async function ensureContentScript(tabId) {
   try {
     const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
-    if (ping?.loaded) {
-      await injectInteractionLayer(tabId);
-      return true;
-    }
+    if (ping?.loaded) return true;
   } catch {
     // Expected on the first click in a tab.
   }
 
-  // Player runtime loads first. The interaction layer only adds wheel handling,
-  // passive counting, and Firefox audible-autoplay recovery.
   await browser.scripting.executeScript({
     target: { tabId },
-    files: ["content.js", "interaction.js"]
+    files: ["content.js"]
   });
 
   const ping = await browser.tabs.sendMessage(tabId, { type: "XVS_PING" });
