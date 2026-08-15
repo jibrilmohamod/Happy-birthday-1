@@ -1,460 +1,444 @@
 (() => {
   "use strict";
-  const X = globalThis.__XVS9;
-  if (!X || X.playerLoaded) return;
-  X.playerLoaded = true;
-  const s = X.state;
+
+  const app = globalThis.__xMediaSlideshow;
+  if (!app || app.player) return;
+  const { state } = app;
+
+  let root = null;
+  let stage = null;
+  let currentMedia = null;
+  let originalPlacement = null;
+  let imageTimer = null;
+  let imageTick = null;
+  let imageDeadline = 0;
+  let imageRemaining = 0;
 
   const icons = {
-    prev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>',
-    next: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
-    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>',
-    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>',
-    volume: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zm11.5 3A2.5 2.5 0 0 0 13 9.71v4.58A2.5 2.5 0 0 0 14.5 12zm0-7.18v2.06a5.5 5.5 0 0 1 0 10.24v2.06a7.5 7.5 0 0 0 0-14.36z"/></svg>',
-    muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.27 3 3 4.27 7.73 9H3v6h4l5 4v-6.73l4.25 4.25A5.5 5.5 0 0 1 14 17.7v2.06a7.5 7.5 0 0 0 3.69-1.81L19.73 20 21 18.73l-9-9L4.27 3zM12 5 9.91 7.09 12 9.18V5zm4.5 7c0-.9-.36-1.72-.94-2.31L14.1 8.23A5.5 5.5 0 0 1 18.5 12c0 .84-.19 1.64-.52 2.35l-1.54-1.54c.04-.26.06-.53.06-.81z"/></svg>',
-    like: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16L12 8.75l-.806-1.09C9.984 6.01 8.526 5.44 7.304 5.5c-1.243.07-2.349.78-2.91 1.91-.552 1.12-.633 2.78.479 4.82 1.074 1.97 3.257 4.27 7.129 6.61 3.87-2.34 6.052-4.64 7.126-6.61 1.111-2.04 1.03-3.7.477-4.82-.561-1.13-1.666-1.84-2.908-1.91z"/></svg>',
-    repost: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 3.88 8.932 8.02l-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L3.432 9.48 2.068 8.02 4.5 3.88zm15 16.24-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14z"/></svg>',
-    bookmark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4a.5.5 0 0 0-.5.5v14.56l6-4.29 6 4.29V4.5a.5.5 0 0 0-.5-.5h-11z"/></svg>',
-    open: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>'
+    previous: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+    next: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+    play: '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>',
+    volume: '<svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10zm11.5-2.5a6 6 0 0 1 0 9"/></svg>',
+    muted: '<svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10zm12-2 5 8m0-8-5 8"/></svg>',
+    like: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
+    repost: '<svg viewBox="0 0 24 24"><path d="m7 7 3-3 3 3M10 4v11a3 3 0 0 0 3 3h4m0-1-3 3-3-3M14 20V9a3 3 0 0 0-3-3H7"/></svg>',
+    bookmark: '<svg viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3-5 3z"/></svg>',
+    open: '<svg viewBox="0 0 24 24"><path d="M14 5h5v5m0-5-8 8M19 13v6H5V5h6"/></svg>',
+    close: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   };
 
-  function restoreActive() {
-    const active = s.activeVideo;
-    if (!active) return;
-    try {
-      if (active.placeholder?.isConnected && active.originalParent?.isConnected) {
-        active.originalParent.insertBefore(active.el, active.placeholder);
-        active.placeholder.remove();
-      }
-    } catch {}
-    s.activeVideo = null;
+  function button(id, label, icon, className = '') {
+    return `<button id="${id}" class="xms-button ${className}" type="button" title="${label}" aria-label="${label}">${icon}</button>`;
   }
 
-  function detach() {
-    const player = s.player;
-    if (!player) return;
-    player.removeEventListener("ended", onEnded);
-    player.removeEventListener("pause", onPause);
-    player.removeEventListener("timeupdate", updateProgress);
-    player.removeEventListener("loadedmetadata", updateProgress);
-    player.removeEventListener("canplay", updateProgress);
+  function markup() {
+    return `
+      <div class="xms-stage" data-xms-stage></div>
+      <div class="xms-topbar">
+        <div class="xms-chip"><span data-xms-kind>MEDIA</span><span data-xms-position>0 / 0</span></div>
+        ${button('xms-close', 'Close slideshow', icons.close)}
+      </div>
+      <button class="xms-nav xms-nav-left" data-xms-prev aria-label="Previous">${icons.previous}</button>
+      <button class="xms-nav xms-nav-right" data-xms-next aria-label="Next">${icons.next}</button>
+      <div class="xms-social">
+        ${button('xms-like', 'Like', icons.like)}
+        ${button('xms-repost', 'Repost', icons.repost)}
+        ${button('xms-bookmark', 'Bookmark', icons.bookmark)}
+        ${button('xms-open', 'Open post', icons.open)}
+      </div>
+      <div class="xms-controls" data-xms-controls>
+        ${button('xms-prev', 'Previous', icons.previous)}
+        ${button('xms-play', 'Play or pause', icons.pause)}
+        ${button('xms-next', 'Next', icons.next)}
+        <input id="xms-progress" class="xms-progress" type="range" min="0" max="1000" value="0" aria-label="Progress">
+        <span id="xms-time" class="xms-time">0:00 / 0:00</span>
+        ${button('xms-volume-button', 'Mute or unmute', icons.muted)}
+        <input id="xms-volume" class="xms-volume" type="range" min="0" max="1" step="0.05" value="0" aria-label="Volume">
+        <select id="xms-rate" class="xms-rate" aria-label="Playback speed">
+          <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+          <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+        </select>
+      </div>
+      <div class="xms-toast" data-xms-toast></div>
+    `;
   }
 
-  function clearImageTimers() {
-    clearTimeout(s.imageTimer);
-    clearInterval(s.imageProgressTimer);
-    s.imageTimer = s.imageProgressTimer = null;
-    s.imageStartedAt = s.imageRunMs = 0;
+  function ensureRoot() {
+    if (root?.isConnected) return root;
+    root = document.createElement('div');
+    root.id = app.OVERLAY_ID;
+    root.innerHTML = markup();
+    document.body.appendChild(root);
+    stage = root.querySelector('[data-xms-stage]');
+    bindUi();
+    showControls();
+    return root;
   }
 
-  function applyVolume() {
-    if (!s.player) return;
-    const muted = s.muted || s.volume <= 0;
-    s.player.muted = muted;
-    s.player.volume = muted ? 0 : s.volume;
-    const button = s.overlay?.querySelector("#xvs-mute");
-    if (button) {
-      button.innerHTML = muted ? icons.muted : icons.volume;
-      button.setAttribute("aria-label", muted ? "Unmute" : "Mute");
-      button.title = muted ? "Unmute (M)" : "Mute (M)";
+  function formatTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+    const whole = Math.floor(seconds);
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+  }
+
+  function toast(message, duration = 1500) {
+    if (!root) return;
+    const node = root.querySelector('[data-xms-toast]');
+    node.textContent = message;
+    node.classList.add('visible');
+    clearTimeout(node.__timer);
+    node.__timer = setTimeout(() => node.classList.remove('visible'), duration);
+  }
+
+  function setPlayIcon(paused) {
+    const play = root?.querySelector('#xms-play');
+    if (play) play.innerHTML = paused ? icons.play : icons.pause;
+  }
+
+  function applyAudioState() {
+    const video = currentMedia instanceof HTMLVideoElement ? currentMedia : null;
+    if (video) {
+      video.muted = state.mediaMuted || state.mediaVolume <= 0;
+      video.volume = Math.max(0, Math.min(1, state.mediaVolume));
+      video.playbackRate = state.mediaRate;
     }
+    const buttonNode = root?.querySelector('#xms-volume-button');
+    if (buttonNode) buttonNode.innerHTML = state.mediaMuted || state.mediaVolume <= 0 ? icons.muted : icons.volume;
+    const slider = root?.querySelector('#xms-volume');
+    if (slider) slider.value = state.mediaMuted ? '0' : String(state.mediaVolume);
   }
 
-  function playWithRetry(retries = 2) {
-    const player = s.player;
-    if (!player || !player.paused || player.seeking) return;
-    applyVolume();
-    const result = player.play();
-    if (result?.catch) {
-      result.catch(error => {
-        if (retries > 0) setTimeout(() => playWithRetry(retries - 1), 100);
-        else {
-          console.warn("XVS autoplay failed", error);
-          showToast("Playback was blocked. Click play to continue.", 2200);
-          showControls(true);
+  async function playVideo(video, attempts = 2) {
+    if (!(video instanceof HTMLVideoElement)) return false;
+    applyAudioState();
+    for (let attempt = 0; attempt <= attempts; attempt += 1) {
+      try {
+        await video.play();
+        state.userPaused = false;
+        setPlayIcon(false);
+        return true;
+      } catch (error) {
+        if (attempt === attempts) {
+          console.debug('X Media Slideshow: play failed', error);
+          toast('Playback was blocked. Press play to continue.', 2200);
+          return false;
         }
-      });
+        await app.sleep(120 + attempt * 80);
+      }
     }
+    return false;
   }
 
-  function onEnded() {
-    if (!s.manualPause && s.active) void X.goTo?.(s.index + 1);
-  }
-
-  function onPause() {
-    if (!s.player || s.manualPause || s.player.ended) return;
-    playWithRetry(1);
-  }
-
-  const fmt = value => Number.isFinite(value) ? `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}` : "--:--";
-
-  function updateCounter() {
-    const count = s.overlay?.querySelector("#xvs-count");
-    const type = s.overlay?.querySelector("#xvs-type");
-    const current = X.currentItem();
-    if (count) count.textContent = `${Math.min(s.index + 1, s.items.length)}/${s.items.length || "--"}`;
-    if (type) type.textContent = current?.type === "image" ? "IMAGE" : "VIDEO";
+  function clearImageClock() {
+    clearTimeout(imageTimer);
+    clearInterval(imageTick);
+    imageTimer = imageTick = null;
+    imageDeadline = 0;
   }
 
   function updateProgress() {
-    const range = s.overlay?.querySelector("#xvs-progress");
-    const time = s.overlay?.querySelector("#xvs-time");
-    const item = X.currentItem();
+    if (!root) return;
+    const slider = root.querySelector('#xms-progress');
+    const time = root.querySelector('#xms-time');
+    if (!slider || !time) return;
 
-    if (item?.type === "image") {
-      const total = s.imageIntervalMs || 3000;
-      const remaining = Math.max(0, s.imageRemainingMs);
-      const pct = total ? 1 - remaining / total : 0;
-      if (range) range.value = String(Math.round(pct * 1000));
-      if (time) time.textContent = `${fmt((total - remaining) / 1000)} / ${fmt(total / 1000)}`;
-      updateCounter();
+    if (currentMedia instanceof HTMLVideoElement) {
+      const duration = Number.isFinite(currentMedia.duration) ? currentMedia.duration : 0;
+      const current = Number.isFinite(currentMedia.currentTime) ? currentMedia.currentTime : 0;
+      slider.value = duration > 0 ? String(Math.round((current / duration) * 1000)) : '0';
+      time.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
       return;
     }
 
-    const player = s.player;
-    if (!player) return;
-    if (range) range.value = Number.isFinite(player.duration) && player.duration > 0 ? String(Math.round(player.currentTime / player.duration * 1000)) : "0";
-    if (time) time.textContent = `${fmt(player.currentTime)} / ${fmt(player.duration)}`;
-    updateCounter();
+    const total = state.imageDurationMs;
+    const remaining = state.userPaused ? imageRemaining : Math.max(0, imageDeadline - Date.now());
+    const elapsed = Math.max(0, total - remaining);
+    slider.value = String(Math.round((elapsed / total) * 1000));
+    time.textContent = `${formatTime(elapsed / 1000)} / ${formatTime(total / 1000)}`;
   }
 
-  function startImageAdvance(ms = s.imageIntervalMs) {
-    clearImageTimers();
-    s.imageRemainingMs = Math.max(0, ms);
-    s.imageStartedAt = Date.now();
-    s.imageRunMs = s.imageRemainingMs;
-    s.imageProgressTimer = setInterval(() => {
-      if (s.manualPause || X.currentItem()?.type !== "image") return;
-      s.imageRemainingMs = Math.max(0, s.imageRunMs - (Date.now() - s.imageStartedAt));
-      updateProgress();
-    }, 100);
-    s.imageTimer = setTimeout(() => {
-      if (!s.manualPause && X.currentItem()?.type === "image") void X.goTo?.(s.index + 1);
-    }, s.imageRemainingMs);
+  function startImageClock(duration = state.imageDurationMs) {
+    clearImageClock();
+    imageRemaining = Math.max(0, duration);
+    imageDeadline = Date.now() + imageRemaining;
+    imageTick = setInterval(updateProgress, 100);
+    imageTimer = setTimeout(() => {
+      if (!state.userPaused && state.running) app.controller?.next('image-ended');
+    }, imageRemaining);
   }
 
-  function pauseImage() {
-    if (X.currentItem()?.type !== "image") return;
-    s.imageRemainingMs = Math.max(0, s.imageRunMs - (Date.now() - s.imageStartedAt));
-    clearImageTimers();
+  function pauseImageClock() {
+    if (!imageDeadline) return;
+    imageRemaining = Math.max(0, imageDeadline - Date.now());
+    clearImageClock();
     updateProgress();
   }
 
-  function currentArticle() {
-    const item = X.currentItem();
-    if (!item) return null;
-    if (item.article?.isConnected) return item.article;
-    if (item.type === "video" && s.activeVideo?.el === item.el) return s.activeVideo.originalParent?.closest("article") || null;
-    return item.el?.closest?.("article") || item.originalParent?.closest?.("article") || null;
+  function restoreVideo() {
+    if (!originalPlacement?.video) return;
+    const { video, parent, anchor } = originalPlacement;
+    detachVideoEvents(video);
+    try { video.pause(); } catch {}
+    if (anchor?.isConnected && parent?.isConnected) parent.insertBefore(video, anchor);
+    else if (parent?.isConnected) parent.appendChild(video);
+    anchor?.remove();
+    originalPlacement = null;
+    state.activeVideo = null;
   }
 
-  function setSocialButton(button, available, active) {
-    if (!button) return;
-    button.disabled = !available;
-    button.classList.toggle("active", Boolean(active));
-    button.setAttribute("aria-pressed", active ? "true" : "false");
+  function detachVideoEvents(video) {
+    video?.removeEventListener('ended', onVideoEnded);
+    video?.removeEventListener('timeupdate', updateProgress);
+    video?.removeEventListener('loadedmetadata', updateProgress);
+    video?.removeEventListener('pause', onVideoPause);
+    video?.removeEventListener('play', onVideoPlay);
   }
 
-  function updateSocial() {
-    const article = currentArticle();
-    const like = s.overlay?.querySelector("#xvs-like");
-    const repost = s.overlay?.querySelector("#xvs-retweet");
-    const bookmark = s.overlay?.querySelector("#xvs-bookmark");
-    const open = s.overlay?.querySelector("#xvs-open");
+  function onVideoEnded() {
+    if (state.running && !state.userPaused) app.controller?.next('video-ended');
+  }
 
-    if (!article) {
-      [like, repost, bookmark, open].forEach(button => { if (button) button.disabled = true; });
-      return;
+  function onVideoPause() {
+    setPlayIcon(true);
+    if (!state.userPaused && state.running && currentMedia instanceof HTMLVideoElement && !currentMedia.ended) {
+      setTimeout(() => {
+        if (!state.userPaused && currentMedia?.paused && !currentMedia?.ended) void playVideo(currentMedia, 1);
+      }, 180);
     }
-
-    const likeSource = article.querySelector('[data-testid="like"],[data-testid="unlike"]');
-    const repostSource = article.querySelector('[data-testid="retweet"],[data-testid="unretweet"]');
-    const bookmarkSource = article.querySelector('[data-testid="bookmark"],[data-testid="removeBookmark"]');
-    const postLink = article.querySelector('a[href*="/status/"]');
-
-    setSocialButton(like, Boolean(likeSource), likeSource?.getAttribute("data-testid") === "unlike");
-    setSocialButton(repost, Boolean(repostSource), repostSource?.getAttribute("data-testid") === "unretweet");
-    setSocialButton(bookmark, Boolean(bookmarkSource), bookmarkSource?.getAttribute("data-testid") === "removeBookmark");
-    if (open) open.disabled = !postLink;
   }
 
-  async function proxySocial(kind) {
+  function onVideoPlay() {
+    setPlayIcon(false);
+  }
+
+  async function showVideo(item) {
+    ensureRoot();
+    clearImageClock();
+    restoreVideo();
+
+    if (!(item?.element instanceof HTMLVideoElement) || !item.element.isConnected) return false;
+    const video = item.element;
+    const parent = video.parentNode;
+    if (!parent) return false;
+
+    const anchor = document.createComment('x-media-slideshow-anchor');
+    parent.insertBefore(anchor, video);
+    originalPlacement = { video, parent, anchor };
+    state.activeVideo = { video, item };
+
+    stage.replaceChildren(video);
+    currentMedia = video;
+    video.controls = false;
+    video.playsInline = true;
+    video.loop = false;
+    video.playbackRate = state.mediaRate;
+    video.currentTime = video.currentTime > 0.5 ? 0 : video.currentTime;
+    video.addEventListener('ended', onVideoEnded);
+    video.addEventListener('timeupdate', updateProgress);
+    video.addEventListener('loadedmetadata', updateProgress);
+    video.addEventListener('pause', onVideoPause);
+    video.addEventListener('play', onVideoPlay);
+    state.userPaused = false;
+    applyAudioState();
+    updateHeader(item);
+    updateProgress();
+    refreshSocial();
+    await playVideo(video, 3);
+    return true;
+  }
+
+  async function showImage(item) {
+    ensureRoot();
+    restoreVideo();
+    clearImageClock();
+    if (!item?.src) return false;
+
+    const image = document.createElement('img');
+    image.src = item.src;
+    image.alt = 'Post image';
+    image.draggable = false;
+    image.addEventListener('click', togglePlayPause);
+    stage.replaceChildren(image);
+    currentMedia = image;
+    state.userPaused = false;
+    imageRemaining = state.imageDurationMs;
+    setPlayIcon(false);
+    updateHeader(item);
+    refreshSocial();
+    startImageClock();
+    updateProgress();
+    return true;
+  }
+
+  function updateHeader(item = app.currentItem()) {
+    if (!root) return;
+    const kind = root.querySelector('[data-xms-kind]');
+    const position = root.querySelector('[data-xms-position]');
+    if (kind) kind.textContent = item?.kind === 'image' ? 'IMAGE' : 'VIDEO';
+    if (position) position.textContent = `${Math.min(state.index + 1, state.items.length)} / ${state.items.length || 0}`;
+  }
+
+  function currentArticle() {
+    const item = app.currentItem();
+    if (!item) return null;
+    return item.article?.isConnected ? item.article : app.findArticleByPost(item.postUrl);
+  }
+
+  function setSocialState(buttonId, selector, activeSelector) {
+    const buttonNode = root?.querySelector(buttonId);
+    if (!buttonNode) return;
+    const article = currentArticle();
+    const action = article?.querySelector(selector);
+    buttonNode.disabled = !action;
+    buttonNode.classList.toggle('active', Boolean(article?.querySelector(activeSelector)));
+  }
+
+  function refreshSocial() {
+    if (!root) return;
+    setSocialState('#xms-like', '[data-testid="like"],[data-testid="unlike"]', '[data-testid="unlike"]');
+    setSocialState('#xms-repost', '[data-testid="retweet"],[data-testid="unretweet"]', '[data-testid="unretweet"]');
+    setSocialState('#xms-bookmark', '[data-testid="bookmark"],[data-testid="removeBookmark"]', '[data-testid="removeBookmark"]');
+    const openButton = root.querySelector('#xms-open');
+    if (openButton) openButton.disabled = !app.currentItem()?.postUrl;
+  }
+
+  async function clickSocial(kind) {
     const article = currentArticle();
     if (!article) {
-      showToast("The original post is no longer available in the feed.");
+      toast('This post is no longer rendered by X.');
       return;
     }
 
     const selectors = {
       like: '[data-testid="like"],[data-testid="unlike"]',
-      retweet: '[data-testid="retweet"],[data-testid="unretweet"]',
-      bookmark: '[data-testid="bookmark"],[data-testid="removeBookmark"]'
+      repost: '[data-testid="retweet"],[data-testid="unretweet"]',
+      bookmark: '[data-testid="bookmark"],[data-testid="removeBookmark"]',
     };
-    const button = article.querySelector(selectors[kind]);
-    if (!button) {
-      showToast(`${kind === "retweet" ? "Repost" : kind[0].toUpperCase() + kind.slice(1)} is unavailable for this post.`);
+    const target = article.querySelector(selectors[kind]);
+    if (!target) {
+      toast(`${kind[0].toUpperCase()}${kind.slice(1)} is unavailable for this post.`);
       return;
     }
 
-    const before = button.getAttribute("data-testid") || "";
-    button.click();
-
-    if (kind === "retweet" && before === "retweet") {
-      for (let i = 0; i < 12; i += 1) {
-        await X.sleep(70);
-        const confirm = document.querySelector('[data-testid="retweetConfirm"]');
-        if (confirm) {
-          confirm.click();
+    target.click();
+    if (kind === 'repost' && target.getAttribute('data-testid') === 'retweet') {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await app.sleep(90);
+        const confirmation = document.querySelector('[data-testid="retweetConfirm"]');
+        if (confirmation) {
+          confirmation.click();
           break;
         }
       }
     }
-
-    setTimeout(updateSocial, 220);
-    setTimeout(updateSocial, 800);
-    const label = kind === "retweet" ? "Repost" : kind[0].toUpperCase() + kind.slice(1);
-    showToast(`${label} updated`, 1000);
+    await app.sleep(220);
+    refreshSocial();
+    toast(kind === 'repost' ? 'Repost updated.' : `${kind[0].toUpperCase()}${kind.slice(1)} updated.`);
   }
 
   function openCurrentPost() {
-    const article = currentArticle();
-    const url = article?.querySelector('a[href*="/status/"]')?.href?.split("?")[0] || (X.currentItem()?.key?.startsWith?.("http") ? X.currentItem().key : null);
-    if (!url) {
-      showToast("Could not find the post URL.");
+    const url = app.currentItem()?.postUrl;
+    if (!url) return toast('Post URL unavailable.');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function togglePlayPause() {
+    if (currentMedia instanceof HTMLVideoElement) {
+      if (currentMedia.paused) {
+        state.userPaused = false;
+        void playVideo(currentMedia, 2);
+      } else {
+        state.userPaused = true;
+        currentMedia.pause();
+      }
+      setPlayIcon(currentMedia.paused);
       return;
     }
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
 
-  function showToast(message, ms = 1500) {
-    const toast = s.overlay?.querySelector("#xvs-toast");
-    if (!toast) return;
-    clearTimeout(s.toastTimer);
-    toast.textContent = message;
-    toast.classList.add("show");
-    s.toastTimer = setTimeout(() => toast.classList.remove("show"), ms);
-  }
-
-  function showControls(keep = false) {
-    if (!s.overlay) return;
-    s.overlay.classList.remove("xvs-idle");
-    clearTimeout(s.controlsTimer);
-    if (keep || s.manualPause) return;
-    s.controlsTimer = setTimeout(() => {
-      if (s.overlay && !s.manualPause) s.overlay.classList.add("xvs-idle");
-    }, 2600);
-  }
-
-  function speedMenuHtml() {
-    return [0.5, 0.75, 1, 1.25, 1.5, 2].map(value => `<button type="button" data-rate="${value}">${value}×</button>`).join("");
-  }
-
-  function html() {
-    return `
-      <div id="xvs-host"></div>
-      <div id="xvs-toast" role="status" aria-live="polite"></div>
-      <div id="xvs-meta"><span id="xvs-type">VIDEO</span><span id="xvs-count">--/--</span></div>
-      <button id="xvs-close" class="xvs-icon" title="Close (Esc)" aria-label="Close">×</button>
-      <button id="xvs-prev-side" class="xvs-side xvs-side-left" title="Previous">${icons.prev}</button>
-      <button id="xvs-next-side" class="xvs-side xvs-side-right" title="Next">${icons.next}</button>
-      <div id="xvs-social">
-        <button id="xvs-like" class="xvs-icon" title="Like (L)" aria-label="Like">${icons.like}</button>
-        <button id="xvs-retweet" class="xvs-icon" title="Repost (R)" aria-label="Repost">${icons.repost}</button>
-        <button id="xvs-bookmark" class="xvs-icon" title="Bookmark (B)" aria-label="Bookmark">${icons.bookmark}</button>
-        <button id="xvs-open" class="xvs-icon" title="Open post (O)" aria-label="Open post">${icons.open}</button>
-      </div>
-      <div id="xvs-controls">
-        <button id="xvs-prev" class="xvs-icon" title="Previous">${icons.prev}</button>
-        <button id="xvs-play" class="xvs-icon" title="Play/Pause (Space)">${icons.pause}</button>
-        <button id="xvs-next" class="xvs-icon" title="Next">${icons.next}</button>
-        <input id="xvs-progress" aria-label="Playback position" type="range" min="0" max="1000" value="0">
-        <span id="xvs-time">0:00 / 0:00</span>
-        <button id="xvs-mute" class="xvs-icon" title="Mute (M)">${icons.muted}</button>
-        <input id="xvs-volume" aria-label="Volume" type="range" min="0" max="1" step="0.05" value="0">
-        <div id="xvs-speed-wrap"><button id="xvs-speed-toggle" type="button">1×</button><div id="xvs-speed-menu" hidden>${speedMenuHtml()}</div></div>
-      </div>`;
-  }
-
-  function createOverlay() {
-    if (s.overlay) return;
-    const overlay = document.createElement("div");
-    overlay.id = X.OVERLAY_ID;
-    overlay.innerHTML = html();
-    document.body.appendChild(overlay);
-    s.overlay = overlay;
-    s.host = overlay.querySelector("#xvs-host");
-
-    overlay.querySelector("#xvs-close").onclick = () => X.destroyOverlay?.();
-    overlay.querySelector("#xvs-prev").onclick = overlay.querySelector("#xvs-prev-side").onclick = () => void X.goTo?.(s.index - 1);
-    overlay.querySelector("#xvs-next").onclick = overlay.querySelector("#xvs-next-side").onclick = () => void X.goTo?.(s.index + 1);
-
-    overlay.querySelector("#xvs-play").onclick = () => {
-      const item = X.currentItem();
-      const button = overlay.querySelector("#xvs-play");
-      if (item?.type === "image") {
-        if (s.manualPause) {
-          s.manualPause = false;
-          startImageAdvance(s.imageRemainingMs || s.imageIntervalMs);
-        } else {
-          s.manualPause = true;
-          pauseImage();
-        }
-        button.innerHTML = s.manualPause ? icons.play : icons.pause;
-        showControls(s.manualPause);
-        return;
-      }
-
-      const player = s.player;
-      if (!player) return;
-      if (player.paused) {
-        s.manualPause = false;
-        playWithRetry(2);
-        button.innerHTML = icons.pause;
-      } else {
-        s.manualPause = true;
-        player.pause();
-        button.innerHTML = icons.play;
-      }
-      showControls(s.manualPause);
-    };
-
-    overlay.querySelector("#xvs-mute").onclick = () => {
-      s.muted = !s.muted;
-      if (!s.muted && s.volume <= 0) s.volume = .5;
-      overlay.querySelector("#xvs-volume").value = s.muted ? "0" : String(s.volume);
-      applyVolume();
-      showControls();
-    };
-
-    overlay.querySelector("#xvs-volume").oninput = event => {
-      s.volume = Math.max(0, Math.min(1, Number(event.target.value) || 0));
-      s.muted = s.volume === 0;
-      applyVolume();
-      showControls();
-    };
-
-    overlay.querySelector("#xvs-progress").oninput = event => {
-      const item = X.currentItem();
-      if (item?.type === "image") {
-        const pct = Number(event.target.value) / 1000;
-        s.imageRemainingMs = s.imageIntervalMs - Math.max(0, Math.min(1, pct)) * s.imageIntervalMs;
-        if (!s.manualPause) startImageAdvance(s.imageRemainingMs); else updateProgress();
-        return;
-      }
-      const player = s.player;
-      if (player && Number.isFinite(player.duration) && player.duration > 0) player.currentTime = Number(event.target.value) / 1000 * player.duration;
-    };
-
-    const speedToggle = overlay.querySelector("#xvs-speed-toggle");
-    const speedMenu = overlay.querySelector("#xvs-speed-menu");
-    speedToggle.onclick = event => {
-      event.stopPropagation();
-      speedMenu.hidden = !speedMenu.hidden;
-      showControls(true);
-    };
-    speedMenu.querySelectorAll("button[data-rate]").forEach(button => {
-      button.onclick = () => {
-        s.rate = Number(button.dataset.rate) || 1;
-        if (s.player) s.player.playbackRate = s.rate;
-        speedToggle.textContent = `${s.rate}×`;
-        speedMenu.hidden = true;
-        showControls();
-      };
-    });
-
-    overlay.querySelector("#xvs-like").onclick = () => void proxySocial("like");
-    overlay.querySelector("#xvs-retweet").onclick = () => void proxySocial("retweet");
-    overlay.querySelector("#xvs-bookmark").onclick = () => void proxySocial("bookmark");
-    overlay.querySelector("#xvs-open").onclick = openCurrentPost;
-
-    overlay.addEventListener("pointermove", () => showControls());
-    overlay.addEventListener("pointerdown", () => showControls());
-    overlay.addEventListener("click", event => {
-      if (!event.target.closest("#xvs-speed-wrap")) speedMenu.hidden = true;
-    });
-
-    s.socialTimer = setInterval(updateSocial, 1000);
-    X.bindInputs?.();
-    showControls();
-  }
-
-  async function moveVideo(item) {
-    const el = item?.el;
-    if (!(el instanceof HTMLVideoElement) || !el.isConnected) return false;
-    clearImageTimers();
-    detach();
-    try { s.player?.pause(); } catch {}
-    restoreActive();
-
-    const parent = el.parentElement;
-    if (!parent) return false;
-    const placeholder = document.createElement("div");
-    placeholder.style.display = "none";
-    parent.insertBefore(placeholder, el);
-    s.activeVideo = { el, placeholder, originalParent: parent };
-    item.placeholder = placeholder;
-    item.originalParent = parent;
-    item.article = parent.closest("article") || item.article;
-
-    s.player = el;
-    s.host.innerHTML = "";
-    s.host.appendChild(el);
-    el.controls = false;
-    el.playsInline = true;
-    el.loop = false;
-    el.playbackRate = s.rate;
-    applyVolume();
-
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("pause", onPause);
-    el.addEventListener("timeupdate", updateProgress);
-    el.addEventListener("loadedmetadata", updateProgress);
-    el.addEventListener("canplay", updateProgress);
-
-    if (el.currentTime > .5) {
-      try { el.currentTime = 0; } catch {}
+    if (currentMedia instanceof HTMLImageElement) {
+      state.userPaused = !state.userPaused;
+      if (state.userPaused) pauseImageClock();
+      else startImageClock(imageRemaining || state.imageDurationMs);
+      setPlayIcon(state.userPaused);
     }
-    s.manualPause = false;
-    s.overlay.querySelector("#xvs-play").innerHTML = icons.pause;
-    playWithRetry(3);
-    updateProgress();
-    updateSocial();
-    showControls();
-
-    setTimeout(() => {
-      if (s.player && !s.player.ended && !s.manualPause && s.player.paused) playWithRetry(1);
-    }, 400);
-    return true;
   }
 
-  async function moveImage(item) {
-    clearImageTimers();
-    detach();
-    try { s.player?.pause(); } catch {}
-    s.player = null;
-    restoreActive();
-    if (!item?.src) return false;
-
-    const img = document.createElement("img");
-    img.src = item.src;
-    img.alt = "Tweet image";
-    img.draggable = false;
-    img.onclick = () => s.overlay?.querySelector("#xvs-play")?.click();
-    s.host.innerHTML = "";
-    s.host.appendChild(img);
-    s.imageRemainingMs = s.imageIntervalMs;
-    s.manualPause = false;
-    s.overlay.querySelector("#xvs-play").innerHTML = icons.pause;
-    updateProgress();
-    updateSocial();
-    showControls();
-    startImageAdvance(s.imageIntervalMs);
-    return true;
+  function seek(value) {
+    const fraction = Math.max(0, Math.min(1, Number(value) / 1000));
+    if (currentMedia instanceof HTMLVideoElement && Number.isFinite(currentMedia.duration) && currentMedia.duration > 0) {
+      currentMedia.currentTime = currentMedia.duration * fraction;
+      return;
+    }
+    if (currentMedia instanceof HTMLImageElement) {
+      imageRemaining = state.imageDurationMs * (1 - fraction);
+      if (!state.userPaused) startImageClock(imageRemaining);
+      else updateProgress();
+    }
   }
 
-  Object.assign(X, {
-    restoreActive, detachPlayerEvents: detach, clearImageTimers, applyVolume, playWithRetry,
-    updateCounter, updateProgress, updateSocial, proxySocial, openCurrentPost, showToast,
-    showControls, createOverlay, moveVideo, moveImage
-  });
+  function showControls() {
+    if (!root) return;
+    root.classList.remove('controls-hidden');
+    clearTimeout(state.controlsHideTimer);
+    state.controlsHideTimer = setTimeout(() => root?.classList.add('controls-hidden'), 2200);
+  }
+
+  function bindUi() {
+    root.addEventListener('mousemove', showControls, { passive: true });
+    root.querySelector('#xms-close').addEventListener('click', () => app.controller?.stop());
+    root.querySelectorAll('[data-xms-prev],#xms-prev').forEach((node) => node.addEventListener('click', () => app.controller?.previous('button')));
+    root.querySelectorAll('[data-xms-next],#xms-next').forEach((node) => node.addEventListener('click', () => app.controller?.next('button')));
+    root.querySelector('#xms-play').addEventListener('click', togglePlayPause);
+    root.querySelector('#xms-progress').addEventListener('input', (event) => seek(event.target.value));
+    root.querySelector('#xms-volume-button').addEventListener('click', () => {
+      state.mediaMuted = !state.mediaMuted;
+      if (!state.mediaMuted && state.mediaVolume <= 0) state.mediaVolume = 0.5;
+      applyAudioState();
+    });
+    root.querySelector('#xms-volume').addEventListener('input', (event) => {
+      state.mediaVolume = Math.max(0, Math.min(1, Number(event.target.value) || 0));
+      state.mediaMuted = state.mediaVolume === 0;
+      applyAudioState();
+    });
+    root.querySelector('#xms-rate').addEventListener('change', (event) => {
+      state.mediaRate = Number(event.target.value) || 1;
+      if (currentMedia instanceof HTMLVideoElement) currentMedia.playbackRate = state.mediaRate;
+    });
+    root.querySelector('#xms-like').addEventListener('click', () => void clickSocial('like'));
+    root.querySelector('#xms-repost').addEventListener('click', () => void clickSocial('repost'));
+    root.querySelector('#xms-bookmark').addEventListener('click', () => void clickSocial('bookmark'));
+    root.querySelector('#xms-open').addEventListener('click', openCurrentPost);
+  }
+
+  function destroy() {
+    clearImageClock();
+    clearInterval(state.socialRefreshTimer);
+    state.socialRefreshTimer = null;
+    restoreVideo();
+    root?.remove();
+    root = stage = currentMedia = null;
+  }
+
+  function startSocialRefresh() {
+    clearInterval(state.socialRefreshTimer);
+    state.socialRefreshTimer = setInterval(refreshSocial, 1200);
+  }
+
+  app.player = {
+    ensureRoot,
+    showVideo,
+    showImage,
+    updateHeader,
+    updateProgress,
+    refreshSocial,
+    startSocialRefresh,
+    togglePlayPause,
+    clickSocial,
+    openCurrentPost,
+    applyAudioState,
+    toast,
+    showControls,
+    destroy,
+  };
 })();
