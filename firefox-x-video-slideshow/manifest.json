@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "X Video Slideshow",
-  "version": "0.1.1",
-  "description": "Browse X videos as a slideshow using X's native player and controls.",
+  "version": "0.2.0",
+  "description": "Fullscreen X video slideshow for Firefox using X's existing video player controls.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "https://x.com/*",
@@ -14,16 +14,6 @@
   "background": {
     "scripts": ["background.js"]
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://x.com/*",
-        "https://twitter.com/*"
-      ],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "x-video-slideshow@jibrilmohamod.github.io",
