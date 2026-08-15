@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>X Media Slideshow</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { width: 306px; margin: 0; padding: 16px; background: #0f1419; color: #f4f7f9; font: 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    h1 { margin: 0; font-size: 16px; }
+    .sub { margin-top: 2px; color: #8fa4b1; font-size: 12px; }
+    .session { margin: 14px 0 10px; padding: 9px 10px; border-radius: 10px; background: #151c22; color: #a9bdc8; font-weight: 650; }
+    button { width: 100%; border: 0; border-radius: 10px; padding: 11px 12px; background: #1d9bf0; color: #04131d; font-weight: 800; cursor: pointer; }
+    button.danger { background: #2a333b; color: #f4f7f9; }
+    button:disabled { opacity: .45; cursor: default; }
+    .options { margin-top: 13px; padding-top: 12px; border-top: 1px solid #26313a; display: grid; gap: 11px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .row-copy { display: grid; gap: 1px; }
+    .row-copy small { color: #738995; font-size: 10.5px; }
+    select { border: 1px solid #33414b; border-radius: 8px; padding: 6px 7px; background: #151c22; color: #f4f7f9; }
+    input[type="checkbox"] { width: 17px; height: 17px; accent-color: #1d9bf0; }
+    #status { min-height: 17px; margin-top: 10px; color: #8fa4b1; font-size: 12px; }
+    .keys { margin-top: 11px; color: #738995; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1>X Media Slideshow</h1>
+  <div class="sub">Fullscreen media browsing for X/Twitter</div>
+  <div id="session" class="session">Checking…</div>
+  <button id="toggle" type="button">Start slideshow</button>
+  <div class="options">
+    <label class="row">
+      <span class="row-copy"><span>Auto Picture-in-Picture</span><small>Try PiP when the X tab is hidden · Firefox 153+</small></span>
+      <input id="autoPip" type="checkbox">
+    </label>
+    <label class="row"><span>Include images</span><input id="includeImages" type="checkbox"></label>
+    <label id="intervalRow" class="row"><span>Image duration</span>
+      <select id="imageInterval"><option value="2">2 sec</option><option value="3">3 sec</option><option value="5">5 sec</option><option value="8">8 sec</option><option value="10">10 sec</option></select>
+    </label>
+  </div>
+  <div id="status"></div>
+  <div class="keys">Arrows/scroll navigate · Space pause · P PiP · L/R/B social · O open post · M mute · Esc close</div>
+  <script src="popup.js"></script>
+</body>
+</html>

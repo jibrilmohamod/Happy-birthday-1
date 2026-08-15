@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "X Media Slideshow",
+  "version": "0.11.0",
+  "description": "Fullscreen mixed-media slideshow for X/Twitter with Picture-in-Picture, gesture navigation, and prominent social controls.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "X Media Slideshow"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "css": [
+        "overlay.css",
+        "enhancements.css"
+      ],
+      "js": [
+        "core.js",
+        "player.js",
+        "controller.js",
+        "enhancements.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "x-media-slideshow@jibrilmohamod.github.io",
+      "strict_min_version": "109.0"
+    }
+  }
+}
